@@ -106,11 +106,13 @@ with tab3:
     st.plotly_chart(plot_rolling_volatility(volatility_df), use_container_width=True)
 
     st.subheader("Latest Volatility Snapshot")
-    if not volatility_df.empty:
-        latest_vol = volatility_df.iloc[-1].reset_index()
-        latest_vol.columns = ["Stock", "Volatility"]
-        latest_vol["Stock"] = latest_vol["Stock"].str.replace(".NS", "", regex=False)
-        st.dataframe(latest_vol, use_container_width=True)
+if not volatility_df.empty and len(volatility_df) > 0:
+    latest_vol = volatility_df.dropna().iloc[-1].reset_index()
+    latest_vol.columns = ["Stock", "Volatility"]
+    latest_vol["Stock"] = latest_vol["Stock"].str.replace(".NS", "", regex=False)
+    st.dataframe(latest_vol, use_container_width=True)
+else:
+    st.warning("Volatility data unavailable — try refreshing.")
 
     # ── Risk vs Return Scatter ──────────────────────────────────────────────
     st.subheader("📍 Risk vs Return")
