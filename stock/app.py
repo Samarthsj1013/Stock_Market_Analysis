@@ -88,13 +88,15 @@ else:
 st.divider()
 
 # ── Tabs ─────────────────────────────────────────────────────────────────────
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
     "📊 Overview",
     "📉 Returns",
     "🌊 Volatility",
     "📐 Bollinger Bands",
     "🔀 Signals & Correlation",
-    "⚖️ Compare Stocks"
+    "⚖️ Compare Stocks",
+    "💰 Investment Simulator",
+    "🎬 Price Race"
 ])
 
 # ── Tab 1: Overview ───────────────────────────────────────────────────────────
@@ -245,3 +247,148 @@ with tab6:
         else:
             m3.metric(f"{stock_a.replace('.NS','')} Avg Volatility", "N/A")
             m4.metric(f"{stock_b.replace('.NS','')} Avg Volatility", "N/A")
+# ── Tab 7: Investment Simulator ───────────────────────────────────────────────
+with tab7:
+    st.subheader("💰 Investment Simulator")
+    st.caption("See what your investment would be worth today based on historical data.")
+
+    sim_col1, sim_col2, sim_col3 = st.columns(3)
+    sim_stock = sim_col1.selectbox("Pick a Stock", TICKERS,
+                                    format_func=lambda x: TICKER_LABELS[x],
+                                    key="sim_stock")
+    sim_amount = sim_col2.number_input("Investment Amount (₹)", min_value=1000,
+                                        max_value=10000000, value=10000, step=1000)
+    sim_start = sim_col3.date_input("Investment Start Date",
+                                     value=pd.to_datetime("2020-01-01"),
+                                     min_value=pd.to_datetime("2020-01-01"),
+                                     max_value=pd.to_datetime("2024-12-31"),
+                                     key="sim_start")
+
+    if sim_stock and sim_amount:
+        stock_series = close_df[sim_stock].dropna()
+        sim_start_ts = pd.Timestamp(sim_start)
+
+        # Find nearest available trading date
+        available_dates = stock_series.index[stock_series.index >= sim_start_ts]
+
+        if len(available_dates) == 0:
+            st.warning("No data available from this start date. Try an earlier date.")
+        else:
+            actual_start = available_dates[0]
+            start_price = stock_series[actual_start]
+            end_price = stock_series.iloc[-1]
+
+            shares = sim_amount / start_price
+            final_value = shares * end_price
+            profit_loss = final_value - sim_amount
+            pct_return = ((final_value - sim_amount) / sim_amount) * 100
+
+            # KPI row
+            k1, k2, k3, k4 = st.columns(4)
+            k1.metric("Amount Invested", f"₹{sim_amount:,.0f}")
+            k2.metric("Current Value", f"₹{final_value:,.0f}",
+                      delta=f"₹{profit_loss:,.0f}")
+            k3.metric("Total Return", f"{pct_return:.1f}%")
+            k4.metric("Shares Purchased", f"{shares:.4f}")
+
+            # Growth chart
+            sim_series = stock_series[stock_series.index >= actual_start]
+            portfolio_value = (sim_series / start_price) * sim_amount
+
+            fig_sim = go.Figure()
+            fig_sim.add_trace(go.Scatter(
+                x=portfolio_value.index,
+                y=portfolio_value.values,
+                mode="lines",
+                name="Portfolio Value",
+                line=dict(color="lime", width=2),
+                fill="tozeroy",
+                fillcolor="rgba(0,255,0,0.05)"
+            ))
+            fig_sim.add_hline(y=sim_amount, line_dash="dash",
+                              line_color="gray",
+                              annotation_text="Initial Investment",
+                              annotation_position="top left")
+            fig_sim.update_layout(
+                title=f"₹{sim_amount:,.0f} invested in {sim_stock.replace('.NS','')} from {actual_start.date()}",
+                xaxis_title="Date",
+                yaxis_title="Portfolio Value (₹)",
+                template="plotly_dark",
+                hovermode="x unified"
+            )
+            st.plotly_chart(fig_sim, use_container_width=True)
+
+            # Compare all stocks with same amount
+            st.subheader("How would it compare across all stocks?")
+            comparison_data = []
+            for ticker in TICKERS:
+                s = close_df[ticker].dropna()
+                avail = s.index[s.index >= sim_start_ts]
+                if len(avail) == 0:
+                    continue
+                sp = s[avail[0]]
+                ep = s.iloc[-1]
+                fv = (ep / sp) * sim_amount
+                comparison_data.append({
+                    "Stock": ticker.replace(".NS", ""),
+                    "Final Value (₹)": round(fv, 2),
+                    "Return (%)": round(((fv - sim_amount) / sim_amount) * 100, 2)
+                })
+
+            comp_df = pd.DataFrame(comparison_data).sort_values("Return (%)", ascending=False)
+
+            fig_comp = px.bar(
+                comp_df,
+                x="Stock",
+                y="Final Value (₹)",
+                color="Return (%)",
+                color_continuous_scale="RdYlGn",
+                title=f"Final Value of ₹{sim_amount:,.0f} across all stocks",
+                template="plotly_dark",
+                text="Return (%)"
+            )
+            fig_comp.update_traces(texttemplate="%{text:.1f}%", textposition="outside")
+            fig_comp.add_hline(y=sim_amount, line_dash="dash",
+                               line_color="gray",
+                               annotation_text="Initial Investment")
+            st.plotly_chart(fig_comp, use_container_width=True)
+            st.dataframe(comp_df, use_container_width=True)
+
+# ── Tab 8: Price Race Animation ───────────────────────────────────────────────
+with tab8:
+    st.subheader("🎬 Normalized Price Race")
+    st.caption("Animated view of how all 5 stocks grew over time (Base = 100)")
+
+    # Build normalized dataframe with date column for animation
+    race_df = close_df.copy()
+    race_df = race_df.dropna()
+    race_df = (race_df / race_df.iloc[0]) * 100
+    race_df = race_df.reset_index()
+    race_df["Date"] = race_df["Date"].astype(str)
+
+    # Melt to long format for plotly animation
+    race_long = race_df.melt(id_vars="Date", var_name="Stock", value_name="Normalized Price")
+    race_long["Stock"] = race_long["Stock"].str.replace(".NS", "", regex=False)
+
+    # Sample every 5 days to keep animation smooth and not too slow
+    dates = race_long["Date"].unique()[::5]
+    race_long = race_long[race_long["Date"].isin(dates)]
+
+    fig_race = px.line(
+        race_long,
+        x="Date",
+        y="Normalized Price",
+        color="Stock",
+        animation_frame="Date",
+        range_y=[0, race_long["Normalized Price"].max() * 1.1],
+        title="Stock Price Race (Normalized to 100)",
+        template="plotly_dark",
+        labels={"Normalized Price": "Price (Base=100)"}
+    )
+    fig_race.update_layout(
+        xaxis_title="Date",
+        yaxis_title="Normalized Price (Base = 100)",
+        hovermode="x unified"
+    )
+    st.plotly_chart(fig_race, use_container_width=True)
+    st.caption("Press the play button ▶ on the slider to animate.")
