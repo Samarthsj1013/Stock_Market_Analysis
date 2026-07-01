@@ -8,7 +8,7 @@ Tracks 5 stocks — TCS, Infosys, Reliance, HDFC Bank, and Wipro — from 2020 t
 
 ## What it does
 
-The dashboard has 6 tabs:
+The dashboard has 9 tabs:
 
 **Overview** — price trends and cumulative returns for all 5 stocks side by side
 
@@ -22,6 +22,9 @@ The dashboard has 6 tabs:
 
 **Compare Stocks** — pick any two stocks, see them on a normalized chart (both starting at 100 so the comparison is fair), with total return and volatility metrics side by side
 
+- **Investment Simulator** — Enter any amount, pick a stock and start date, see current value + comparison across all stocks
+- **Price Race** — Animated bar chart race of all 5 stocks with adjustable speed (0.25x to 4x)
+- **MA Crossover Backtest** — Simulates buy/sell signals vs buy & hold, with trade log and signal chart
 There's also a sidebar date filter so you can zoom into any time range, and KPI cards at the top showing best/worst performer and volatility rankings for the selected period.
 
 ---
