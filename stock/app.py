@@ -56,20 +56,35 @@ cum_returns = compute_cumulative_returns(close_df)
 # ── KPI Cards ────────────────────────────────────────────────────────────────
 st.subheader("📌 Portfolio Snapshot")
 
-total_returns = (close_df.iloc[-1] / close_df.iloc[0] - 1) * 100
-best_stock = total_returns.idxmax().replace(".NS", "")
-worst_stock = total_returns.idxmin().replace(".NS", "")
-best_return = total_returns.max()
-worst_return = total_returns.min()
-avg_vol = volatility_df.mean()
-most_volatile = avg_vol.idxmax().replace(".NS", "")
-least_volatile = avg_vol.idxmin().replace(".NS", "")
-
 col1, col2, col3, col4 = st.columns(4)
-col1.metric("🏆 Best Performer", best_stock, f"+{best_return:.1f}%")
-col2.metric("📉 Worst Performer", worst_stock, f"{worst_return:.1f}%")
-col3.metric("🌊 Most Volatile", most_volatile, f"{avg_vol.max():.2f}")
-col4.metric("🛡️ Least Volatile", least_volatile, f"{avg_vol.min():.2f}")
+
+if not close_df.empty and len(close_df) > 1:
+    total_returns = (close_df.iloc[-1] / close_df.iloc[0] - 1) * 100
+    total_returns = total_returns.dropna()
+    avg_vol = volatility_df.mean().dropna()
+
+    if not total_returns.empty:
+        best_stock = total_returns.idxmax().replace(".NS", "")
+        worst_stock = total_returns.idxmin().replace(".NS", "")
+        col1.metric("🏆 Best Performer", best_stock, f"+{total_returns.max():.1f}%")
+        col2.metric("📉 Worst Performer", worst_stock, f"{total_returns.min():.1f}%")
+    else:
+        col1.metric("🏆 Best Performer", "N/A", "")
+        col2.metric("📉 Worst Performer", "N/A", "")
+
+    if not avg_vol.empty:
+        most_volatile = avg_vol.idxmax().replace(".NS", "")
+        least_volatile = avg_vol.idxmin().replace(".NS", "")
+        col3.metric("🌊 Most Volatile", most_volatile, f"{avg_vol.max():.2f}")
+        col4.metric("🛡️ Least Volatile", least_volatile, f"{avg_vol.min():.2f}")
+    else:
+        col3.metric("🌊 Most Volatile", "N/A", "")
+        col4.metric("🛡️ Least Volatile", "N/A", "")
+else:
+    col1.metric("🏆 Best Performer", "N/A", "")
+    col2.metric("📉 Worst Performer", "N/A", "")
+    col3.metric("🌊 Most Volatile", "N/A", "")
+    col4.metric("🛡️ Least Volatile", "N/A", "")
 
 st.divider()
 
