@@ -24,7 +24,7 @@ TICKER_LABELS = {t: t.replace(".NS", "") for t in TICKERS}
 st.title("📈 Stock Market EDA & Volatility Tracker")
 st.caption("NSE Stocks | Built with Python, yfinance & Streamlit")
 
-# ── Sidebar: Date Range Filter ──────────────────────────────────────────────
+# ── Sidebar ──────────────────────────────────────────────────────────────────
 st.sidebar.header("⚙️ Filters")
 start_date = st.sidebar.date_input("Start Date", value=pd.to_datetime("2020-01-01"))
 end_date = st.sidebar.date_input("End Date", value=pd.to_datetime("2024-12-31"))
@@ -37,7 +37,6 @@ if start_date >= end_date:
 @st.cache_data(show_spinner="Fetching stock data...")
 def load_data(start, end):
     import yfinance as yf
-    import pandas as pd
     raw = yf.download(TICKERS, start=start, end=end, auto_adjust=True, progress=False)
     if isinstance(raw.columns, pd.MultiIndex):
         close = raw["Close"]
@@ -121,15 +120,14 @@ with tab3:
     st.plotly_chart(plot_rolling_volatility(volatility_df), use_container_width=True)
 
     st.subheader("Latest Volatility Snapshot")
-if not volatility_df.empty and len(volatility_df) > 0:
-    latest_vol = volatility_df.dropna().iloc[-1].reset_index()
-    latest_vol.columns = ["Stock", "Volatility"]
-    latest_vol["Stock"] = latest_vol["Stock"].str.replace(".NS", "", regex=False)
-    st.dataframe(latest_vol, use_container_width=True)
-else:
-    st.warning("Volatility data unavailable — try refreshing.")
+    if not volatility_df.empty and len(volatility_df) > 0:
+        latest_vol = volatility_df.dropna().iloc[-1].reset_index()
+        latest_vol.columns = ["Stock", "Volatility"]
+        latest_vol["Stock"] = latest_vol["Stock"].str.replace(".NS", "", regex=False)
+        st.dataframe(latest_vol, use_container_width=True)
+    else:
+        st.warning("Volatility data unavailable — try refreshing.")
 
-    # ── Risk vs Return Scatter ──────────────────────────────────────────────
     st.subheader("📍 Risk vs Return")
     avg_annual_return = daily_returns.mean() * 252 * 100
     avg_annual_vol = volatility_df.mean() * 100
@@ -196,7 +194,6 @@ with tab6:
     if stock_a == stock_b:
         st.warning("Please select two different stocks.")
     else:
-        # Normalized price (both starting at 100)
         norm = close_df[[stock_a, stock_b]].copy()
         norm = (norm / norm.iloc[0]) * 100
 
@@ -220,20 +217,31 @@ with tab6:
         )
         st.plotly_chart(fig_compare, use_container_width=True)
 
-        # Side by side metrics
         st.subheader("Head-to-Head Metrics")
-        r_a = total_returns[stock_a]
-        r_b = total_returns[stock_b]
-        v_a = avg_vol[stock_a]
-        v_b = avg_vol[stock_b]
+        total_returns_full = (close_df.iloc[-1] / close_df.iloc[0] - 1) * 100
+        avg_vol_full = volatility_df.mean()
+
+        r_a = total_returns_full.get(stock_a, None)
+        r_b = total_returns_full.get(stock_b, None)
+        v_a = avg_vol_full.get(stock_a, None)
+        v_b = avg_vol_full.get(stock_b, None)
 
         m1, m2 = st.columns(2)
-        m1.metric(f"{stock_a.replace('.NS','')} Total Return", f"{r_a:.1f}%")
-        m2.metric(f"{stock_b.replace('.NS','')} Total Return", f"{r_b:.1f}%",
-                  delta=f"{r_b - r_a:.1f}% vs {stock_a.replace('.NS','')}")
-
         m3, m4 = st.columns(2)
-        m3.metric(f"{stock_a.replace('.NS','')} Avg Volatility", f"{v_a:.3f}")
-        m4.metric(f"{stock_b.replace('.NS','')} Avg Volatility", f"{v_b:.3f}",
-                  delta=f"{v_b - v_a:.3f} vs {stock_a.replace('.NS','')}",
-                  delta_color="inverse")
+
+        if r_a is not None and r_b is not None:
+            m1.metric(f"{stock_a.replace('.NS','')} Total Return", f"{r_a:.1f}%")
+            m2.metric(f"{stock_b.replace('.NS','')} Total Return", f"{r_b:.1f}%",
+                      delta=f"{r_b - r_a:.1f}% vs {stock_a.replace('.NS','')}")
+        else:
+            m1.metric(f"{stock_a.replace('.NS','')} Total Return", "N/A")
+            m2.metric(f"{stock_b.replace('.NS','')} Total Return", "N/A")
+
+        if v_a is not None and v_b is not None:
+            m3.metric(f"{stock_a.replace('.NS','')} Avg Volatility", f"{v_a:.3f}")
+            m4.metric(f"{stock_b.replace('.NS','')} Avg Volatility", f"{v_b:.3f}",
+                      delta=f"{v_b - v_a:.3f} vs {stock_a.replace('.NS','')}",
+                      delta_color="inverse")
+        else:
+            m3.metric(f"{stock_a.replace('.NS','')} Avg Volatility", "N/A")
+            m4.metric(f"{stock_b.replace('.NS','')} Avg Volatility", "N/A")
