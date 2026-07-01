@@ -355,40 +355,59 @@ with tab7:
             st.dataframe(comp_df, use_container_width=True)
 
 # ── Tab 8: Price Race Animation ───────────────────────────────────────────────
+# ── Tab 8: Price Race Animation ───────────────────────────────────────────────
 with tab8:
-    st.subheader("🎬 Normalized Price Race")
-    st.caption("Animated view of how all 5 stocks grew over time (Base = 100)")
+    st.subheader("🎬 Stock Price Race")
+    st.caption("Animated bar chart race showing normalized price growth over time (Base = 100)")
 
-    # Build normalized dataframe with date column for animation
-    race_df = close_df.copy()
-    race_df = race_df.dropna()
+    race_df = close_df.copy().dropna()
     race_df = (race_df / race_df.iloc[0]) * 100
     race_df = race_df.reset_index()
-    race_df["Date"] = race_df["Date"].astype(str)
+    race_df["Date"] = pd.to_datetime(race_df["Date"]).dt.strftime("%Y-%m-%d")
 
-    # Melt to long format for plotly animation
-    race_long = race_df.melt(id_vars="Date", var_name="Stock", value_name="Normalized Price")
+    # Sample every 10 days to keep it smooth
+    race_df = race_df.iloc[::10].reset_index(drop=True)
+
+    # Melt to long format
+    race_long = race_df.melt(id_vars="Date", var_name="Stock", value_name="Value")
     race_long["Stock"] = race_long["Stock"].str.replace(".NS", "", regex=False)
+    race_long["Value"] = race_long["Value"].round(2)
 
-    # Sample every 5 days to keep animation smooth and not too slow
-    dates = race_long["Date"].unique()[::5]
-    race_long = race_long[race_long["Date"].isin(dates)]
+    # Color map
+    color_map = {
+        "TCS": "#636EFA",
+        "INFY": "#EF553B",
+        "RELIANCE": "#00CC96",
+        "HDFCBANK": "#AB63FA",
+        "WIPRO": "#FFA15A"
+    }
 
-    fig_race = px.line(
+    fig_race = px.bar(
         race_long,
-        x="Date",
-        y="Normalized Price",
-        color="Stock",
+        x="Value",
+        y="Stock",
         animation_frame="Date",
-        range_y=[0, race_long["Normalized Price"].max() * 1.1],
-        title="Stock Price Race (Normalized to 100)",
-        template="plotly_dark",
-        labels={"Normalized Price": "Price (Base=100)"}
+        orientation="h",
+        range_x=[0, race_long["Value"].max() * 1.15],
+        color="Stock",
+        color_discrete_map=color_map,
+        text="Value",
+        title="Stock Price Race — Normalized to 100 (2020–2024)",
+        template="plotly_dark"
     )
+
+    fig_race.update_traces(texttemplate="%{text:.1f}", textposition="outside")
     fig_race.update_layout(
-        xaxis_title="Date",
-        yaxis_title="Normalized Price (Base = 100)",
-        hovermode="x unified"
+        xaxis_title="Normalized Price (Base = 100)",
+        yaxis_title="",
+        showlegend=False,
+        height=450,
+        yaxis=dict(categoryorder="total ascending")
     )
+
+    # Speed up animation
+    fig_race.layout.updatemenus[0].buttons[0].args[1]["frame"]["duration"] = 100
+    fig_race.layout.updatemenus[0].buttons[0].args[1]["transition"]["duration"] = 50
+
     st.plotly_chart(fig_race, use_container_width=True)
-    st.caption("Press the play button ▶ on the slider to animate.")
+    st.caption("Press ▶ to start the race. Watch which stock takes the lead over 5 years.")
