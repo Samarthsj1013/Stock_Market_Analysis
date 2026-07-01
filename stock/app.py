@@ -360,20 +360,34 @@ with tab8:
     st.subheader("🎬 Stock Price Race")
     st.caption("Animated bar chart race showing normalized price growth over time (Base = 100)")
 
+    # Speed control
+    speed_option = st.select_slider(
+        "Animation Speed",
+        options=["0.25x", "0.5x", "1x", "2x", "4x"],
+        value="1x"
+    )
+
+    speed_map = {
+        "0.25x": 800,
+        "0.5x": 400,
+        "1x": 200,
+        "2x": 100,
+        "4x": 50
+    }
+    frame_duration = speed_map[speed_option]
+
     race_df = close_df.copy().dropna()
     race_df = (race_df / race_df.iloc[0]) * 100
     race_df = race_df.reset_index()
     race_df["Date"] = pd.to_datetime(race_df["Date"]).dt.strftime("%Y-%m-%d")
 
-    # Sample every 10 days to keep it smooth
+    # Sample every 10 days
     race_df = race_df.iloc[::10].reset_index(drop=True)
 
-    # Melt to long format
     race_long = race_df.melt(id_vars="Date", var_name="Stock", value_name="Value")
     race_long["Stock"] = race_long["Stock"].str.replace(".NS", "", regex=False)
     race_long["Value"] = race_long["Value"].round(2)
 
-    # Color map
     color_map = {
         "TCS": "#636EFA",
         "INFY": "#EF553B",
@@ -405,9 +419,8 @@ with tab8:
         yaxis=dict(categoryorder="total ascending")
     )
 
-    # Speed up animation
-    fig_race.layout.updatemenus[0].buttons[0].args[1]["frame"]["duration"] = 100
-    fig_race.layout.updatemenus[0].buttons[0].args[1]["transition"]["duration"] = 50
+    fig_race.layout.updatemenus[0].buttons[0].args[1]["frame"]["duration"] = frame_duration
+    fig_race.layout.updatemenus[0].buttons[0].args[1]["transition"]["duration"] = frame_duration // 2
 
     st.plotly_chart(fig_race, use_container_width=True)
-    st.caption("Press ▶ to start the race. Watch which stock takes the lead over 5 years.")
+    st.caption("Press ▶ to start. Use the speed slider above to control animation pace. 0.25x is slowest, 4x is fastest.")
