@@ -88,7 +88,7 @@ else:
 st.divider()
 
 # ── Tabs ─────────────────────────────────────────────────────────────────────
-tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
     "📊 Overview",
     "📉 Returns",
     "🌊 Volatility",
@@ -96,7 +96,8 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
     "🔀 Signals & Correlation",
     "⚖️ Compare Stocks",
     "💰 Investment Simulator",
-    "🎬 Price Race"
+    "🎬 Price Race",
+    "🧪 Backtest"
 ])
 
 # ── Tab 1: Overview ───────────────────────────────────────────────────────────
@@ -424,3 +425,136 @@ with tab8:
 
     st.plotly_chart(fig_race, use_container_width=True)
     st.caption("Press ▶ to start. Use the speed slider above to control animation pace. 0.25x is slowest, 4x is fastest.")
+
+# ── Tab 9: MA Crossover Backtest ──────────────────────────────────────────────
+with tab9:
+    st.subheader("🧪 MA Crossover Backtest Simulator")
+    st.caption("Simulates buying and selling based on MA20 vs MA50 crossover signals. Compares strategy returns vs simply holding.")
+
+    bt_col1, bt_col2 = st.columns(2)
+    bt_stock = bt_col1.selectbox("Select Stock", TICKERS,
+                                  format_func=lambda x: TICKER_LABELS[x],
+                                  key="bt_stock")
+    bt_amount = bt_col2.number_input("Starting Capital (₹)", min_value=1000,
+                                      max_value=10000000, value=10000, step=1000,
+                                      key="bt_amount")
+
+    # Build backtest
+    prices = close_df[bt_stock].dropna()
+    bt_df = pd.DataFrame({"Price": prices})
+    bt_df["MA20"] = bt_df["Price"].rolling(20).mean()
+    bt_df["MA50"] = bt_df["Price"].rolling(50).mean()
+    bt_df.dropna(inplace=True)
+
+    # Signal: 1 = hold/buy, 0 = out of market
+    bt_df["Signal"] = 0
+    bt_df.loc[bt_df["MA20"] > bt_df["MA50"], "Signal"] = 1
+
+    # Backtest logic
+    bt_df["Daily Return"] = bt_df["Price"].pct_change(fill_method=None)
+    bt_df["Strategy Return"] = bt_df["Daily Return"] * bt_df["Signal"].shift(1)
+    bt_df.dropna(inplace=True)
+
+    # Cumulative portfolio value
+    bt_df["Hold Value"] = bt_amount * (1 + bt_df["Daily Return"]).cumprod()
+    bt_df["Strategy Value"] = bt_amount * (1 + bt_df["Strategy Return"]).cumprod()
+
+    # Final values
+    final_hold = bt_df["Hold Value"].iloc[-1]
+    final_strategy = bt_df["Strategy Value"].iloc[-1]
+    hold_return = ((final_hold - bt_amount) / bt_amount) * 100
+    strategy_return = ((final_strategy - bt_amount) / bt_amount) * 100
+
+    # Signal stats
+    trades = bt_df["Signal"].diff().fillna(0)
+    num_buys = (trades == 1).sum()
+    num_sells = (trades == -1).sum()
+    days_in_market = bt_df["Signal"].sum()
+    pct_in_market = (days_in_market / len(bt_df)) * 100
+
+    # KPI row
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("Buy & Hold Return", f"{hold_return:.1f}%", f"₹{final_hold:,.0f}")
+    k2.metric("Strategy Return", f"{strategy_return:.1f}%", f"₹{final_strategy:,.0f}",
+              delta_color="normal")
+    k3.metric("Total Trades", f"{int(num_buys)} buys / {int(num_sells)} sells")
+    k4.metric("Days in Market", f"{pct_in_market:.1f}%")
+
+    # Winner banner
+    if strategy_return > hold_return:
+        st.success(f"✅ Strategy BEAT buy & hold by {strategy_return - hold_return:.1f}%")
+    else:
+        st.warning(f"⚠️ Buy & Hold beat the strategy by {hold_return - strategy_return:.1f}% — signals didn't help here")
+
+    # Portfolio growth chart
+    fig_bt = go.Figure()
+    fig_bt.add_trace(go.Scatter(
+        x=bt_df.index,
+        y=bt_df["Hold Value"],
+        name="Buy & Hold",
+        line=dict(color="cyan", width=2)
+    ))
+    fig_bt.add_trace(go.Scatter(
+        x=bt_df.index,
+        y=bt_df["Strategy Value"],
+        name="MA Crossover Strategy",
+        line=dict(color="lime", width=2)
+    ))
+    fig_bt.add_hline(y=bt_amount, line_dash="dash",
+                     line_color="gray",
+                     annotation_text="Starting Capital",
+                     annotation_position="top left")
+    fig_bt.update_layout(
+        title=f"Portfolio Growth — {bt_stock.replace('.NS','')} | Starting ₹{bt_amount:,.0f}",
+        xaxis_title="Date",
+        yaxis_title="Portfolio Value (₹)",
+        template="plotly_dark",
+        hovermode="x unified"
+    )
+    st.plotly_chart(fig_bt, use_container_width=True)
+
+    # Buy/sell signal markers on price
+    st.subheader("Buy & Sell Points on Price Chart")
+    signal_changes = bt_df["Signal"].diff().fillna(0)
+    buy_points = bt_df[signal_changes == 1]
+    sell_points = bt_df[signal_changes == -1]
+
+    fig_signals = go.Figure()
+    fig_signals.add_trace(go.Scatter(
+        x=bt_df.index, y=bt_df["Price"],
+        name="Price", line=dict(color="white", width=1)
+    ))
+    fig_signals.add_trace(go.Scatter(
+        x=bt_df.index, y=bt_df["MA20"],
+        name="MA20", line=dict(color="cyan", dash="dash", width=1)
+    ))
+    fig_signals.add_trace(go.Scatter(
+        x=bt_df.index, y=bt_df["MA50"],
+        name="MA50", line=dict(color="orange", dash="dash", width=1)
+    ))
+    fig_signals.add_trace(go.Scatter(
+        x=buy_points.index, y=buy_points["Price"],
+        mode="markers", name="Buy",
+        marker=dict(color="lime", size=10, symbol="triangle-up")
+    ))
+    fig_signals.add_trace(go.Scatter(
+        x=sell_points.index, y=sell_points["Price"],
+        mode="markers", name="Sell",
+        marker=dict(color="red", size=10, symbol="triangle-down")
+    ))
+    fig_signals.update_layout(
+        title=f"Trade Signals — {bt_stock.replace('.NS', '')}",
+        xaxis_title="Date",
+        yaxis_title="Price (INR)",
+        template="plotly_dark",
+        hovermode="x unified"
+    )
+    st.plotly_chart(fig_signals, use_container_width=True)
+
+    # Raw trade log
+    with st.expander("📋 View Trade Log"):
+        trade_log = bt_df[signal_changes != 0][["Price", "Signal"]].copy()
+        trade_log["Action"] = trade_log["Signal"].map({1: "BUY", 0: "SELL"})
+        trade_log = trade_log[["Price", "Action"]]
+        trade_log["Price"] = trade_log["Price"].round(2)
+        st.dataframe(trade_log, use_container_width=True)
