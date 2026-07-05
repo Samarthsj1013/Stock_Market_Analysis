@@ -88,7 +88,7 @@ else:
 st.divider()
 
 # ── Tabs ─────────────────────────────────────────────────────────────────────
-tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10 = st.tabs([
     "📊 Overview",
     "📉 Returns",
     "🌊 Volatility",
@@ -97,7 +97,8 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
     "⚖️ Compare Stocks",
     "💰 Investment Simulator",
     "🎬 Price Race",
-    "🧪 Backtest"
+    "🧪 Backtest",
+    "📅 SIP Simulator"
 ])
 
 # ── Tab 1: Overview ───────────────────────────────────────────────────────────
@@ -106,6 +107,49 @@ with tab1:
     st.plotly_chart(plot_price_trends(close_df), use_container_width=True)
     st.subheader("Cumulative Returns")
     st.plotly_chart(plot_cumulative_returns(cum_returns), use_container_width=True)
+    st.subheader("📏 52-Week High / Low Tracker")
+st.caption("Where is each stock currently trading relative to its 52-week range?")
+
+week52_data = []
+for ticker in TICKERS:
+    s = close_df[ticker].dropna()
+    if len(s) < 252:
+        rolling = s
+    else:
+        rolling = s.iloc[-252:]
+    high = rolling.max()
+    low = rolling.min()
+    current = s.iloc[-1]
+    pct_from_high = ((current - high) / high) * 100
+    pct_from_low = ((current - low) / low) * 100
+    position = ((current - low) / (high - low)) * 100
+
+    week52_data.append({
+        "Stock": ticker.replace(".NS", ""),
+        "Current": round(current, 2),
+        "52W High": round(high, 2),
+        "52W Low": round(low, 2),
+        "% From High": round(pct_from_high, 2),
+        "% From Low": round(pct_from_low, 2),
+        "Position in Range (%)": round(position, 2)
+    })
+
+week52_df = pd.DataFrame(week52_data)
+
+fig_52 = px.bar(
+    week52_df,
+    x="Stock",
+    y="Position in Range (%)",
+    color="Position in Range (%)",
+    color_continuous_scale="RdYlGn",
+    title="52-Week Range Position (0% = at Low, 100% = at High)",
+    template="plotly_dark",
+    text="Position in Range (%)"
+)
+fig_52.update_traces(texttemplate="%{text:.1f}%", textposition="outside")
+fig_52.update_layout(showlegend=False)
+st.plotly_chart(fig_52, use_container_width=True)
+st.dataframe(week52_df, use_container_width=True)
 
 # ── Tab 2: Returns ────────────────────────────────────────────────────────────
 with tab2:
@@ -116,6 +160,13 @@ with tab2:
                     use_container_width=True)
     st.subheader("Raw Daily Returns")
     st.dataframe(daily_returns.tail(30).style.format("{:.4f}"), use_container_width=True)
+    csv = daily_returns.tail(30).to_csv().encode("utf-8")
+st.download_button(
+    label="📥 Download Returns Data (CSV)",
+    data=csv,
+    file_name="daily_returns.csv",
+    mime="text/csv"
+)
 
 # ── Tab 3: Volatility ─────────────────────────────────────────────────────────
 with tab3:
@@ -154,6 +205,33 @@ with tab3:
     fig_scatter.update_traces(textposition="top center", marker=dict(size=18))
     fig_scatter.update_layout(showlegend=False)
     st.plotly_chart(fig_scatter, use_container_width=True)
+    st.subheader("📊 Sharpe Ratio")
+st.caption("Return per unit of risk. Higher = better. Assumes 6% risk-free rate (approx Indian 10-yr bond).")
+
+risk_free_daily = 0.06 / 252
+excess_returns = daily_returns - risk_free_daily
+sharpe = (excess_returns.mean() / daily_returns.std()) * (252 ** 0.5)
+sharpe_df = pd.DataFrame({
+    "Stock": [t.replace(".NS", "") for t in TICKERS],
+    "Sharpe Ratio": sharpe.values.round(2)
+}).sort_values("Sharpe Ratio", ascending=False)
+
+fig_sharpe = px.bar(
+    sharpe_df,
+    x="Stock",
+    y="Sharpe Ratio",
+    color="Sharpe Ratio",
+    color_continuous_scale="RdYlGn",
+    title="Sharpe Ratio — All Stocks",
+    template="plotly_dark",
+    text="Sharpe Ratio"
+)
+fig_sharpe.update_traces(textposition="outside")
+fig_sharpe.add_hline(y=1, line_dash="dash", line_color="white",
+                     annotation_text="Good (>1)", annotation_position="top right")
+fig_sharpe.update_layout(showlegend=False)
+st.plotly_chart(fig_sharpe, use_container_width=True)
+st.dataframe(sharpe_df, use_container_width=True)
 
 # ── Tab 4: Bollinger Bands ────────────────────────────────────────────────────
 with tab4:
@@ -558,3 +636,104 @@ with tab9:
         trade_log = trade_log[["Price", "Action"]]
         trade_log["Price"] = trade_log["Price"].round(2)
         st.dataframe(trade_log, use_container_width=True)
+
+# ── Tab 10: SIP Simulator ─────────────────────────────────────────────────────
+with tab10:
+    st.subheader("📅 SIP Simulator")
+    st.caption("Systematic Investment Plan — invest a fixed amount every month and see how it grows.")
+
+    sip_col1, sip_col2, sip_col3 = st.columns(3)
+    sip_stock = sip_col1.selectbox("Select Stock", TICKERS,
+                                    format_func=lambda x: TICKER_LABELS[x],
+                                    key="sip_stock")
+    sip_amount = sip_col2.number_input("Monthly SIP Amount (₹)", min_value=500,
+                                        max_value=1000000, value=5000, step=500,
+                                        key="sip_amount")
+    sip_start = sip_col3.date_input("SIP Start Date",
+                                     value=pd.to_datetime("2020-01-01"),
+                                     min_value=pd.to_datetime("2020-01-01"),
+                                     max_value=pd.to_datetime("2024-11-01"),
+                                     key="sip_start")
+
+    prices = close_df[sip_stock].dropna()
+    sip_start_ts = pd.Timestamp(sip_start)
+
+    # Get one price per month (first trading day of each month)
+    monthly_prices = prices[prices.index >= sip_start_ts].resample("MS").first().dropna()
+
+    if len(monthly_prices) == 0:
+        st.warning("No data from this start date.")
+    else:
+        total_invested = 0
+        total_units = 0
+        portfolio_history = []
+
+        for date, price in monthly_prices.items():
+            units_bought = sip_amount / price
+            total_units += units_bought
+            total_invested += sip_amount
+            current_value = total_units * prices.asof(date)
+            portfolio_history.append({
+                "Date": date,
+                "Total Invested (₹)": round(total_invested, 2),
+                "Portfolio Value (₹)": round(current_value, 2)
+            })
+
+        sip_df = pd.DataFrame(portfolio_history)
+        final_value = total_units * prices.iloc[-1]
+        total_months = len(monthly_prices)
+        profit = final_value - total_invested
+        pct_return = (profit / total_invested) * 100
+
+        # XIRR approximation (simple annualized)
+        years = total_months / 12
+        annualized = ((final_value / total_invested) ** (1 / years) - 1) * 100 if years > 0 else 0
+
+        k1, k2, k3, k4 = st.columns(4)
+        k1.metric("Total Invested", f"₹{total_invested:,.0f}")
+        k2.metric("Current Value", f"₹{final_value:,.0f}", f"₹{profit:,.0f}")
+        k3.metric("Total Return", f"{pct_return:.1f}%")
+        k4.metric("Annualized Return", f"{annualized:.1f}%")
+
+        fig_sip = go.Figure()
+        fig_sip.add_trace(go.Scatter(
+            x=sip_df["Date"],
+            y=sip_df["Portfolio Value (₹)"],
+            name="Portfolio Value",
+            line=dict(color="lime", width=2),
+            fill="tozeroy",
+            fillcolor="rgba(0,255,0,0.05)"
+        ))
+        fig_sip.add_trace(go.Scatter(
+            x=sip_df["Date"],
+            y=sip_df["Total Invested (₹)"],
+            name="Amount Invested",
+            line=dict(color="gray", width=2, dash="dash")
+        ))
+        fig_sip.update_layout(
+            title=f"SIP Growth — ₹{sip_amount:,.0f}/month in {sip_stock.replace('.NS', '')}",
+            xaxis_title="Date",
+            yaxis_title="Value (₹)",
+            template="plotly_dark",
+            hovermode="x unified"
+        )
+        st.plotly_chart(fig_sip, use_container_width=True)
+
+        # Compare SIP vs Lump Sum
+        st.subheader("SIP vs Lump Sum Comparison")
+        lump_start_price = prices.asof(sip_start_ts)
+        lump_value = (total_invested / lump_start_price) * prices.iloc[-1]
+        lump_return = ((lump_value - total_invested) / total_invested) * 100
+
+        c1, c2 = st.columns(2)
+        c1.metric("SIP Final Value", f"₹{final_value:,.0f}", f"{pct_return:.1f}%")
+        c2.metric("Lump Sum Final Value", f"₹{lump_value:,.0f}", f"{lump_return:.1f}%",
+                  delta_color="normal")
+
+        if final_value > lump_value:
+            st.success(f"✅ SIP outperformed Lump Sum by ₹{final_value - lump_value:,.0f}")
+        else:
+            st.info(f"📊 Lump Sum outperformed SIP by ₹{lump_value - final_value:,.0f} — market trended up strongly")
+
+        with st.expander("📋 Monthly SIP Breakdown"):
+            st.dataframe(sip_df, use_container_width=True)

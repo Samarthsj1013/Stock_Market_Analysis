@@ -1,88 +1,106 @@
 # Stock Market EDA & Volatility Tracker
 
-I built this to get hands-on with financial data analysis — something I hadn't touched before. The idea was simple: take real NSE stock data, run some analysis on it, and make it actually usable through a dashboard rather than just notebooks.
+I built this to get hands-on with real financial data analysis using live NSE stock data. The goal was to go beyond just plotting price charts — I wanted something that actually simulates trading decisions, models risk, and gives usable outputs like rupee-based investment outcomes.
 
-Tracks 5 stocks — TCS, Infosys, Reliance, HDFC Bank, and Wipro — from 2020 to 2024. That range was intentional, COVID crash and recovery makes the data a lot more interesting to analyze.
+Tracks 5 stocks — TCS, Infosys, Reliance, HDFC Bank, and Wipro — from 2020 to 2024. That date range was intentional; the COVID crash and recovery period makes the volatility analysis genuinely interesting.
 
----
-
-## What it does
-
-The dashboard has 9 tabs:
-
-**Overview** — price trends and cumulative returns for all 5 stocks side by side
-
-**Returns** — daily return distribution per stock, plus a raw returns table for the last 30 days
-
-**Volatility** — rolling 20-day annualized volatility. The COVID spike in mid-2020 is very visible here. Also includes a Risk vs Return scatter plot which I found genuinely useful — shows HDFCBANK is the safest bet but also the lowest return over this period
-
-**Bollinger Bands** — upper and lower bands around the 20-day moving average, per stock. Useful for spotting overbought/oversold zones
-
-**Signals & Correlation** — MA20 vs MA50 crossover signals plotted on the price chart, plus a correlation heatmap. TCS and INFY came out at 0.71 which makes sense given they're both large-cap IT
-
-**Compare Stocks** — pick any two stocks, see them on a normalized chart (both starting at 100 so the comparison is fair), with total return and volatility metrics side by side
-
-- **Investment Simulator** — Enter any amount, pick a stock and start date, see current value + comparison across all stocks
-- **Price Race** — Animated bar chart race of all 5 stocks with adjustable speed (0.25x to 4x)
-- **MA Crossover Backtest** — Simulates buy/sell signals vs buy & hold, with trade log and signal chart
-There's also a sidebar date filter so you can zoom into any time range, and KPI cards at the top showing best/worst performer and volatility rankings for the selected period.
+🔗 **[Live Demo](#)** ← replace with your Streamlit URL
 
 ---
 
-## Stack
+## Features
 
-- Python
-- yfinance for data
-- Pandas for all the number crunching
-- Plotly for charts
-- Streamlit for the dashboard
+**10 tabs, each doing something different:**
+
+- **Overview** — price trends for all 5 stocks, cumulative returns, and 52-week high/low tracker
+- **Returns** — daily return distribution per stock, raw returns table, CSV download
+- **Volatility** — rolling 20-day annualized volatility, Risk vs Return scatter, Sharpe Ratio comparison
+- **Bollinger Bands** — MA20 with upper/lower bands per stock for overbought/oversold analysis
+- **Signals & Correlation** — MA20 vs MA50 crossover buy/sell signals + correlation heatmap
+- **Compare Stocks** — normalized head-to-head comparison with return and volatility metrics
+- **Investment Simulator** — enter any ₹ amount and start date, see current value across all stocks
+- **Price Race** — animated bar chart race with adjustable speed (0.25x to 4x)
+- **Backtest** — MA crossover strategy vs buy-and-hold with trade log and portfolio growth chart
+- **SIP Simulator** — monthly SIP simulator with annualized return and SIP vs lump sum comparison
 
 ---
 
-## Running it locally
+## Tech Stack
+
+| Tool | Version | Purpose |
+|------|---------|---------|
+| Python | 3.12 | Core language |
+| Streamlit | Latest | Dashboard framework and deployment |
+| yfinance | Latest | Live NSE stock data fetching |
+| Pandas | Latest | Data manipulation and analysis |
+| Plotly | Latest | Interactive charts and animations |
+| Scikit-learn | Latest | Supporting ML utilities |
+
+---
+
+## Running Locally
 
 ```bash
-git clone https://github.com/Samarthsj1013/stock-market-tracker.git
-cd stock-market-tracker
+# Clone the repo
+git clone https://github.com/Samarthsj1013/Stock_Market_Analysis.git
+
+# Navigate to project folder
+cd Stock_Market_Analysis/stock
+
+# Install dependencies
 pip install -r requirements.txt
+
+# Run the app
 python -m streamlit run app.py
 ```
 
 ---
 
-## Project structure
+## Project Structure
 
 ```
-stock/
-├── app.py
-├── data/
-│   └── fetch_data.py
-├── analysis/
-│   ├── returns.py
-│   ├── bollinger.py
-│   └── signals.py
-├── visuals/
-│   ├── charts.py
-│   └── heatmap.py
-└── requirements.txt
+Stock_Market_Analysis/
+├── README.md
+└── stock/
+    ├── app.py                  # Main Streamlit dashboard (10 tabs)
+    ├── requirements.txt        # Dependencies
+    ├── data/
+    │   └── fetch_data.py       # yfinance data fetching
+    ├── analysis/
+    │   ├── returns.py          # Daily returns, volatility, cumulative returns
+    │   ├── bollinger.py        # Bollinger Bands calculation
+    │   └── signals.py          # MA crossover signal generation
+    └── visuals/
+        ├── charts.py           # All Plotly chart functions
+        └── heatmap.py          # Correlation heatmap
 ```
 
 ---
 
-## A few things I noticed in the data
+## Stocks Tracked
 
-INFY returned ~192% over this period which was surprising — it outperformed TCS by a significant margin. WIPRO had the highest volatility but middling returns, which puts it in a bad spot on the risk-return chart. The correlation heatmap showed IT stocks (TCS, INFY, WIPRO) moving together more than I expected, while HDFC Bank and Reliance were more independent.
-
-The COVID period (roughly March to July 2020) is the most interesting stretch in the data — volatility spiked to over 1.0 annualized for most stocks, which is extreme compared to the 0.2 range they sit at normally.
-
----
-
-## Live demo
-
-🔗 [Add Streamlit URL here after deployment]
+| Ticker | Company |
+|--------|---------|
+| TCS.NS | Tata Consultancy Services |
+| INFY.NS | Infosys |
+| RELIANCE.NS | Reliance Industries |
+| HDFCBANK.NS | HDFC Bank |
+| WIPRO.NS | Wipro |
 
 ---
 
-Samarth Jayant
-samarthsj1013@gmail.com
-[LinkedIn](https://linkedin.com/in/samarth-jayant-0a947b35b)
+## Key Insights from the Data
+
+- INFY returned ~192% over 2020–2024, the best performer by a significant margin
+- WIPRO had the highest volatility but middling returns — worst risk-adjusted performance of the five
+- TCS and INFY are highly correlated (0.71) as expected for large-cap IT peers
+- COVID period (March–July 2020) shows annualized volatility spiking above 1.0, vs the normal 0.15–0.25 range
+- Buy-and-hold beat the MA crossover strategy for most stocks — trend-following works better in strongly directional markets
+
+---
+
+## Author
+
+**Samarth Jayant**
+B.E. Information Science & Engineering — Global Academy of Technology, Bangalore
+samarthsj1013@gmail.com | [LinkedIn](https://linkedin.com/in/samarth-jayant-0a947b35b) | [GitHub](https://github.com/Samarthsj1013)
