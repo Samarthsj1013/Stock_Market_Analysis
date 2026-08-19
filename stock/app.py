@@ -1,61 +1,167 @@
 import streamlit as st
 import pandas as pd
-from data.fetch_data import fetch_stock_data
+import plotly.express as px
+import plotly.graph_objects as go
+from data.fetch_data import fetch_stock_data, fetch_realtime_price, fetch_news
+from data.nifty50 import (NIFTY50_STOCKS, SECTORS, get_tickers,
+                           get_ticker_label, get_sector,
+                           get_tickers_by_sector, search_stocks)
 from analysis.returns import compute_daily_returns, compute_rolling_volatility, compute_cumulative_returns
 from analysis.bollinger import compute_bollinger_bands
 from analysis.signals import compute_ma_signals
-from visuals.charts import (
-    plot_price_trends,
-    plot_cumulative_returns,
-    plot_daily_returns_distribution,
-    plot_rolling_volatility,
-    plot_bollinger_bands,
-    plot_ma_signals
-)
+from visuals.charts import (plot_price_trends, plot_cumulative_returns,
+                             plot_daily_returns_distribution,
+                             plot_rolling_volatility, plot_bollinger_bands,
+                             plot_ma_signals)
 from visuals.heatmap import plot_correlation_heatmap
-import plotly.express as px
-import plotly.graph_objects as go
 
-st.set_page_config(page_title="Stock Market Tracker", layout="wide", page_icon="📈")
+# ── Page Config ───────────────────────────────────────────────────────────────
+st.set_page_config(
+    page_title="Nifty 50 Market Intelligence",
+    layout="wide",
+    page_icon="📈",
+    initial_sidebar_state="expanded"
+)
 
-TICKERS = ["TCS.NS", "INFY.NS", "RELIANCE.NS", "HDFCBANK.NS", "WIPRO.NS"]
-TICKER_LABELS = {t: t.replace(".NS", "") for t in TICKERS}
+# ── Custom CSS ────────────────────────────────────────────────────────────────
+st.markdown("""
+<style>
+    .main { background-color: #0e1117; }
+    .stock-header {
+        font-size: 28px;
+        font-weight: 700;
+        color: #ffffff;
+        margin-bottom: 0;
+    }
+    .sub-text {
+        font-size: 13px;
+        color: #8892a4;
+    }
+    div[data-testid="stMetricValue"] {
+        font-size: 1.6rem;
+        font-weight: 700;
+    }
+    div[data-testid="stMetricDelta"] {
+        font-size: 0.9rem;
+    }
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 4px;
+        background-color: #1a1d2e;
+        padding: 4px;
+        border-radius: 10px;
+    }
+    .stTabs [data-baseweb="tab"] {
+        border-radius: 8px;
+        padding: 6px 16px;
+        font-size: 13px;
+    }
+</style>
+""", unsafe_allow_html=True)
 
-st.title("📈 Stock Market EDA & Volatility Tracker")
-st.caption("NSE Stocks | Built with Python, yfinance & Streamlit")
+ALL_TICKERS = get_tickers()
 
-# ── Sidebar ──────────────────────────────────────────────────────────────────
-st.sidebar.header("⚙️ Filters")
-start_date = st.sidebar.date_input("Start Date", value=pd.to_datetime("2020-01-01"))
-end_date = st.sidebar.date_input("End Date", value=pd.to_datetime("2024-12-31"))
+# ── Sidebar ───────────────────────────────────────────────────────────────────
+with st.sidebar:
+    st.markdown("## 📈 Nifty 50 Dashboard")
+    st.markdown("---")
 
-if start_date >= end_date:
-    st.sidebar.error("Start date must be before end date.")
-    st.stop()
+    search_query = st.text_input("🔍 Search Stock", placeholder="e.g. Infosys, TCS, Reliance")
+    if search_query:
+        results = search_stocks(search_query)
+        if results:
+            st.success(f"Found {len(results)} result(s)")
+            for ticker, info in results.items():
+                st.markdown(f"**{info['name']}** `{ticker}` — {info['sector']}")
+        else:
+            st.warning("No stocks found.")
+
+    st.markdown("---")
+
+    selected_sector = st.selectbox("🏭 Filter by Sector", ["All Sectors"] + SECTORS)
+
+    if selected_sector == "All Sectors":
+        filtered_tickers = ALL_TICKERS
+    else:
+        filtered_tickers = get_tickers_by_sector(selected_sector)
+
+    selected_tickers = st.multiselect(
+        "📊 Select Stocks (max 10)",
+        options=filtered_tickers,
+        default=filtered_tickers[:5],
+        format_func=lambda x: get_ticker_label(x),
+        max_selections=10
+    )
+
+    if not selected_tickers:
+        st.warning("Please select at least one stock.")
+        st.stop()
+
+    st.markdown("---")
+    st.markdown("### 📅 Date Range")
+    start_date = st.date_input("Start", value=pd.to_datetime("2020-01-01"))
+    end_date = st.date_input("End", value=pd.to_datetime("2024-12-31"))
+
+    if start_date >= end_date:
+        st.error("Start date must be before end date.")
+        st.stop()
+
+    st.markdown("---")
+    st.markdown('<p class="sub-text">Data sourced from Yahoo Finance via yfinance. Not financial advice.</p>',
+                unsafe_allow_html=True)
+
+# ── Header ────────────────────────────────────────────────────────────────────
+st.markdown('<p class="stock-header">📈 Nifty 50 Market Intelligence Dashboard</p>', unsafe_allow_html=True)
+st.markdown(f'<p class="sub-text">Analyzing {len(selected_tickers)} stocks | {start_date} to {end_date} | Sector: {selected_sector}</p>', unsafe_allow_html=True)
+st.markdown("---")
 
 # ── Load Data ────────────────────────────────────────────────────────────────
-@st.cache_data(show_spinner="Fetching stock data...")
-def load_data(start, end):
-    import yfinance as yf
-    raw = yf.download(TICKERS, start=start, end=end, auto_adjust=True, progress=False)
-    if isinstance(raw.columns, pd.MultiIndex):
-        close = raw["Close"]
-    else:
-        close = raw[["Close"]]
-    if isinstance(close.columns, pd.MultiIndex):
-        close.columns = close.columns.get_level_values(0)
-    close.dropna(how="all", inplace=True)
-    return close
+@st.cache_data(show_spinner="Fetching market data...", ttl=300)
+def load_data(tickers, start, end):
+    return fetch_stock_data(list(tickers), str(start), str(end))
 
-close_df = load_data(str(start_date), str(end_date))
+close_df = load_data(tuple(selected_tickers), start_date, end_date)
+close_df = close_df[[c for c in selected_tickers if c in close_df.columns]]
+
+if close_df.empty:
+    st.error("No data available for selected stocks and date range.")
+    st.stop()
+
 daily_returns = compute_daily_returns(close_df)
 volatility_df = compute_rolling_volatility(close_df)
 cum_returns = compute_cumulative_returns(close_df)
 
-# ── KPI Cards ────────────────────────────────────────────────────────────────
-st.subheader("📌 Portfolio Snapshot")
+# ── Live Prices ───────────────────────────────────────────────────────────────
+st.subheader("⚡ Live Market Prices")
 
-col1, col2, col3, col4 = st.columns(4)
+@st.cache_data(ttl=60, show_spinner="Fetching live prices...")
+def get_live_prices(tickers):
+    return {t: fetch_realtime_price(t) for t in tickers}
+
+live_data = get_live_prices(tuple(selected_tickers[:8]))
+cols = st.columns(min(len(selected_tickers[:8]), 4))
+
+for i, ticker in enumerate(selected_tickers[:8]):
+    col = cols[i % 4]
+    data = live_data.get(ticker, {})
+    price = data.get("price")
+    change = data.get("change")
+    change_pct = data.get("change_pct")
+    name = get_ticker_label(ticker)
+    sector = get_sector(ticker)
+    if price:
+        col.metric(
+            label=f"{name} — {sector}",
+            value=f"₹{price:,.2f}",
+            delta=f"{change:+.2f} ({change_pct:+.2f}%)"
+        )
+    else:
+        col.metric(label=name, value="N/A")
+
+st.markdown("---")
+
+# ── Portfolio Snapshot KPIs ───────────────────────────────────────────────────
+st.subheader("📌 Portfolio Snapshot")
+col1, col2, col3, col4, col5 = st.columns(5)
 
 if not close_df.empty and len(close_df) > 1:
     total_returns = (close_df.iloc[-1] / close_df.iloc[0] - 1) * 100
@@ -79,17 +185,18 @@ if not close_df.empty and len(close_df) > 1:
     else:
         col3.metric("🌊 Most Volatile", "N/A", "")
         col4.metric("🛡️ Least Volatile", "N/A", "")
-else:
-    col1.metric("🏆 Best Performer", "N/A", "")
-    col2.metric("📉 Worst Performer", "N/A", "")
-    col3.metric("🌊 Most Volatile", "N/A", "")
-    col4.metric("🛡️ Least Volatile", "N/A", "")
 
-st.divider()
+    col5.metric("📊 Avg Return", f"{total_returns.mean():.1f}%")
+else:
+    for col in [col1, col2, col3, col4, col5]:
+        col.metric("N/A", "N/A", "")
+
+st.markdown("---")
 
 # ── Tabs ─────────────────────────────────────────────────────────────────────
-tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11, tab12 = st.tabs([
     "📊 Overview",
+    "🏭 Sectors",
     "📉 Returns",
     "🌊 Volatility",
     "📐 Bollinger Bands",
@@ -98,78 +205,107 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10 = st.tabs([
     "💰 Investment Simulator",
     "🎬 Price Race",
     "🧪 Backtest",
-    "📅 SIP Simulator"
+    "📅 SIP Simulator",
+    "📰 News Feed"
 ])
 
 # ── Tab 1: Overview ───────────────────────────────────────────────────────────
 with tab1:
     st.subheader("Price Trends")
     st.plotly_chart(plot_price_trends(close_df), use_container_width=True)
+
     st.subheader("Cumulative Returns")
     st.plotly_chart(plot_cumulative_returns(cum_returns), use_container_width=True)
+
     st.subheader("📏 52-Week High / Low Tracker")
-st.caption("Where is each stock currently trading relative to its 52-week range?")
+    week52_data = []
+    for ticker in selected_tickers:
+        s = close_df[ticker].dropna()
+        if len(s) == 0:
+            continue
+        rolling = s.iloc[-252:] if len(s) >= 252 else s
+        high = rolling.max()
+        low = rolling.min()
+        current = s.iloc[-1]
+        position = ((current - low) / (high - low)) * 100 if high != low else 50
+        week52_data.append({
+            "Stock": ticker.replace(".NS", ""),
+            "Current (₹)": round(current, 2),
+            "52W High (₹)": round(high, 2),
+            "52W Low (₹)": round(low, 2),
+            "% From High": round(((current - high) / high) * 100, 2),
+            "Position in Range (%)": round(position, 2)
+        })
+    week52_df = pd.DataFrame(week52_data)
+    if not week52_df.empty:
+        fig_52 = px.bar(week52_df, x="Stock", y="Position in Range (%)",
+                        color="Position in Range (%)", color_continuous_scale="RdYlGn",
+                        title="52-Week Range Position (0% = at Low, 100% = at High)",
+                        template="plotly_dark", text="Position in Range (%)")
+        fig_52.update_traces(texttemplate="%{text:.1f}%", textposition="outside")
+        fig_52.update_layout(showlegend=False)
+        st.plotly_chart(fig_52, use_container_width=True)
+        st.dataframe(week52_df, use_container_width=True)
 
-week52_data = []
-for ticker in TICKERS:
-    s = close_df[ticker].dropna()
-    if len(s) < 252:
-        rolling = s
-    else:
-        rolling = s.iloc[-252:]
-    high = rolling.max()
-    low = rolling.min()
-    current = s.iloc[-1]
-    pct_from_high = ((current - high) / high) * 100
-    pct_from_low = ((current - low) / low) * 100
-    position = ((current - low) / (high - low)) * 100
-
-    week52_data.append({
-        "Stock": ticker.replace(".NS", ""),
-        "Current": round(current, 2),
-        "52W High": round(high, 2),
-        "52W Low": round(low, 2),
-        "% From High": round(pct_from_high, 2),
-        "% From Low": round(pct_from_low, 2),
-        "Position in Range (%)": round(position, 2)
-    })
-
-week52_df = pd.DataFrame(week52_data)
-
-fig_52 = px.bar(
-    week52_df,
-    x="Stock",
-    y="Position in Range (%)",
-    color="Position in Range (%)",
-    color_continuous_scale="RdYlGn",
-    title="52-Week Range Position (0% = at Low, 100% = at High)",
-    template="plotly_dark",
-    text="Position in Range (%)"
-)
-fig_52.update_traces(texttemplate="%{text:.1f}%", textposition="outside")
-fig_52.update_layout(showlegend=False)
-st.plotly_chart(fig_52, use_container_width=True)
-st.dataframe(week52_df, use_container_width=True)
-
-# ── Tab 2: Returns ────────────────────────────────────────────────────────────
+# ── Tab 2: Sector Breakdown ───────────────────────────────────────────────────
 with tab2:
+    st.subheader("🏭 Sector-wise Performance")
+    sector_data = []
+    for ticker in selected_tickers:
+        if ticker not in close_df.columns:
+            continue
+        s = close_df[ticker].dropna()
+        if len(s) < 2:
+            continue
+        ret = ((s.iloc[-1] / s.iloc[0]) - 1) * 100
+        vol = daily_returns[ticker].std() * (252 ** 0.5) if ticker in daily_returns.columns else 0
+        sector_data.append({
+            "Stock": get_ticker_label(ticker),
+            "Ticker": ticker.replace(".NS", ""),
+            "Sector": get_sector(ticker),
+            "Total Return (%)": round(ret, 2),
+            "Annualized Volatility": round(vol, 3)
+        })
+    sector_df = pd.DataFrame(sector_data)
+    if not sector_df.empty:
+        sector_avg = sector_df.groupby("Sector")["Total Return (%)"].mean().reset_index()
+        sector_avg.columns = ["Sector", "Avg Return (%)"]
+        sector_avg = sector_avg.sort_values("Avg Return (%)", ascending=False)
+        fig_sector = px.bar(sector_avg, x="Sector", y="Avg Return (%)",
+                            color="Avg Return (%)", color_continuous_scale="RdYlGn",
+                            title="Average Return by Sector",
+                            template="plotly_dark", text="Avg Return (%)")
+        fig_sector.update_traces(texttemplate="%{text:.1f}%", textposition="outside")
+        fig_sector.update_layout(showlegend=False)
+        st.plotly_chart(fig_sector, use_container_width=True)
+
+        fig_scatter_sector = px.scatter(sector_df, x="Annualized Volatility",
+                                        y="Total Return (%)", color="Sector",
+                                        text="Ticker", size=[20]*len(sector_df),
+                                        title="Risk vs Return by Sector",
+                                        template="plotly_dark")
+        fig_scatter_sector.update_traces(textposition="top center", marker=dict(size=14))
+        st.plotly_chart(fig_scatter_sector, use_container_width=True)
+
+        st.subheader("Stock-wise Breakdown")
+        st.dataframe(sector_df.sort_values("Total Return (%)", ascending=False),
+                     use_container_width=True)
+
+# ── Tab 3: Returns ────────────────────────────────────────────────────────────
+with tab3:
     st.subheader("Daily Return Distribution")
-    selected = st.selectbox("Select Stock", TICKERS,
-                            format_func=lambda x: TICKER_LABELS[x], key="returns")
-    st.plotly_chart(plot_daily_returns_distribution(daily_returns, selected),
-                    use_container_width=True)
-    st.subheader("Raw Daily Returns")
+    selected = st.selectbox("Select Stock", selected_tickers,
+                            format_func=lambda x: get_ticker_label(x), key="returns")
+    if selected in daily_returns.columns:
+        st.plotly_chart(plot_daily_returns_distribution(daily_returns, selected),
+                        use_container_width=True)
+    st.subheader("Raw Daily Returns (Last 30 Days)")
     st.dataframe(daily_returns.tail(30).style.format("{:.4f}"), use_container_width=True)
     csv = daily_returns.tail(30).to_csv().encode("utf-8")
-st.download_button(
-    label="📥 Download Returns Data (CSV)",
-    data=csv,
-    file_name="daily_returns.csv",
-    mime="text/csv"
-)
+    st.download_button("📥 Download Returns CSV", csv, "daily_returns.csv", "text/csv")
 
-# ── Tab 3: Volatility ─────────────────────────────────────────────────────────
-with tab3:
+# ── Tab 4: Volatility ─────────────────────────────────────────────────────────
+with tab4:
     st.subheader("Rolling 20-Day Annualized Volatility")
     st.plotly_chart(plot_rolling_volatility(volatility_df), use_container_width=True)
 
@@ -179,561 +315,348 @@ with tab3:
         latest_vol.columns = ["Stock", "Volatility"]
         latest_vol["Stock"] = latest_vol["Stock"].str.replace(".NS", "", regex=False)
         st.dataframe(latest_vol, use_container_width=True)
-    else:
-        st.warning("Volatility data unavailable — try refreshing.")
 
     st.subheader("📍 Risk vs Return")
     avg_annual_return = daily_returns.mean() * 252 * 100
     avg_annual_vol = volatility_df.mean() * 100
-
+    valid_tickers = [t for t in selected_tickers if t in avg_annual_return.index]
     scatter_df = pd.DataFrame({
-        "Stock": [t.replace(".NS", "") for t in TICKERS],
-        "Avg Annual Return (%)": avg_annual_return.values,
-        "Avg Annual Volatility (%)": avg_annual_vol.values
+        "Stock": [t.replace(".NS", "") for t in valid_tickers],
+        "Avg Annual Return (%)": [avg_annual_return[t] for t in valid_tickers],
+        "Avg Annual Volatility (%)": [avg_annual_vol[t] for t in valid_tickers],
+        "Sector": [get_sector(t) for t in valid_tickers]
     })
-
-    fig_scatter = px.scatter(
-        scatter_df,
-        x="Avg Annual Volatility (%)",
-        y="Avg Annual Return (%)",
-        text="Stock",
-        size=[20] * len(scatter_df),
-        color="Stock",
-        title="Risk vs Return — All Stocks",
-        template="plotly_dark"
-    )
-    fig_scatter.update_traces(textposition="top center", marker=dict(size=18))
-    fig_scatter.update_layout(showlegend=False)
+    fig_scatter = px.scatter(scatter_df, x="Avg Annual Volatility (%)",
+                             y="Avg Annual Return (%)", text="Stock",
+                             color="Sector", size=[20]*len(scatter_df),
+                             title="Risk vs Return", template="plotly_dark")
+    fig_scatter.update_traces(textposition="top center", marker=dict(size=14))
     st.plotly_chart(fig_scatter, use_container_width=True)
+
     st.subheader("📊 Sharpe Ratio")
-st.caption("Return per unit of risk. Higher = better. Assumes 6% risk-free rate (approx Indian 10-yr bond).")
+    risk_free_daily = 0.06 / 252
+    excess_returns = daily_returns - risk_free_daily
+    sharpe = (excess_returns.mean() / daily_returns.std()) * (252 ** 0.5)
+    sharpe_df = pd.DataFrame({
+        "Stock": [t.replace(".NS", "") for t in sharpe.index],
+        "Sharpe Ratio": sharpe.values.round(2)
+    }).sort_values("Sharpe Ratio", ascending=False)
+    fig_sharpe = px.bar(sharpe_df, x="Stock", y="Sharpe Ratio",
+                        color="Sharpe Ratio", color_continuous_scale="RdYlGn",
+                        title="Sharpe Ratio — Selected Stocks",
+                        template="plotly_dark", text="Sharpe Ratio")
+    fig_sharpe.update_traces(textposition="outside")
+    fig_sharpe.add_hline(y=1, line_dash="dash", line_color="white",
+                         annotation_text="Good (>1)", annotation_position="top right")
+    fig_sharpe.update_layout(showlegend=False)
+    st.plotly_chart(fig_sharpe, use_container_width=True)
 
-risk_free_daily = 0.06 / 252
-excess_returns = daily_returns - risk_free_daily
-sharpe = (excess_returns.mean() / daily_returns.std()) * (252 ** 0.5)
-sharpe_df = pd.DataFrame({
-    "Stock": [t.replace(".NS", "") for t in TICKERS],
-    "Sharpe Ratio": sharpe.values.round(2)
-}).sort_values("Sharpe Ratio", ascending=False)
-
-fig_sharpe = px.bar(
-    sharpe_df,
-    x="Stock",
-    y="Sharpe Ratio",
-    color="Sharpe Ratio",
-    color_continuous_scale="RdYlGn",
-    title="Sharpe Ratio — All Stocks",
-    template="plotly_dark",
-    text="Sharpe Ratio"
-)
-fig_sharpe.update_traces(textposition="outside")
-fig_sharpe.add_hline(y=1, line_dash="dash", line_color="white",
-                     annotation_text="Good (>1)", annotation_position="top right")
-fig_sharpe.update_layout(showlegend=False)
-st.plotly_chart(fig_sharpe, use_container_width=True)
-st.dataframe(sharpe_df, use_container_width=True)
-
-# ── Tab 4: Bollinger Bands ────────────────────────────────────────────────────
-with tab4:
+# ── Tab 5: Bollinger Bands ────────────────────────────────────────────────────
+with tab5:
     st.subheader("Bollinger Bands")
-    selected_bb = st.selectbox("Select Stock", TICKERS,
-                               format_func=lambda x: TICKER_LABELS[x], key="bb")
-    bb_df = compute_bollinger_bands(close_df[selected_bb])
-    st.plotly_chart(plot_bollinger_bands(bb_df, selected_bb), use_container_width=True)
-
+    selected_bb = st.selectbox("Select Stock", selected_tickers,
+                               format_func=lambda x: get_ticker_label(x), key="bb")
+    if selected_bb in close_df.columns:
+        bb_df = compute_bollinger_bands(close_df[selected_bb])
+        st.plotly_chart(plot_bollinger_bands(bb_df, selected_bb), use_container_width=True)
     with st.expander("What are Bollinger Bands?"):
         st.write("""
         - **MA20** = 20-day moving average
-        - **Upper Band** = MA20 + 2× std deviation → potential **sell** zone
-        - **Lower Band** = MA20 − 2× std deviation → potential **buy** zone
-        - When price touches the lower band, it may indicate oversold conditions.
+        - **Upper Band** = MA20 + 2× std → potential **sell** zone
+        - **Lower Band** = MA20 − 2× std → potential **buy** zone
         """)
 
-# ── Tab 5: Signals & Correlation ──────────────────────────────────────────────
-with tab5:
+# ── Tab 6: Signals & Correlation ──────────────────────────────────────────────
+with tab6:
     st.subheader("MA Crossover Buy/Sell Signals")
-    selected_sig = st.selectbox("Select Stock", TICKERS,
-                                format_func=lambda x: TICKER_LABELS[x], key="sig")
-    signal_df = compute_ma_signals(close_df[selected_sig])
-    st.plotly_chart(plot_ma_signals(signal_df, selected_sig), use_container_width=True)
-
+    selected_sig = st.selectbox("Select Stock", selected_tickers,
+                                format_func=lambda x: get_ticker_label(x), key="sig")
+    if selected_sig in close_df.columns:
+        signal_df = compute_ma_signals(close_df[selected_sig])
+        st.plotly_chart(plot_ma_signals(signal_df, selected_sig), use_container_width=True)
     st.subheader("Correlation Heatmap")
     st.plotly_chart(plot_correlation_heatmap(daily_returns), use_container_width=True)
 
-# ── Tab 6: Compare Stocks ─────────────────────────────────────────────────────
-with tab6:
+# ── Tab 7: Compare Stocks ─────────────────────────────────────────────────────
+with tab7:
     st.subheader("⚖️ Stock Comparison Mode")
-
     col_a, col_b = st.columns(2)
-    stock_a = col_a.selectbox("Stock A", TICKERS,
-                               format_func=lambda x: TICKER_LABELS[x],
+    stock_a = col_a.selectbox("Stock A", selected_tickers,
+                               format_func=lambda x: get_ticker_label(x),
                                index=0, key="compare_a")
-    stock_b = col_b.selectbox("Stock B", TICKERS,
-                               format_func=lambda x: TICKER_LABELS[x],
-                               index=1, key="compare_b")
+    stock_b = col_b.selectbox("Stock B", selected_tickers,
+                               format_func=lambda x: get_ticker_label(x),
+                               index=min(1, len(selected_tickers)-1), key="compare_b")
 
     if stock_a == stock_b:
         st.warning("Please select two different stocks.")
-    else:
+    elif stock_a in close_df.columns and stock_b in close_df.columns:
         norm = close_df[[stock_a, stock_b]].copy()
         norm = (norm / norm.iloc[0]) * 100
-
         fig_compare = go.Figure()
-        fig_compare.add_trace(go.Scatter(
-            x=norm.index, y=norm[stock_a],
-            name=stock_a.replace(".NS", ""),
-            line=dict(color="cyan")
-        ))
-        fig_compare.add_trace(go.Scatter(
-            x=norm.index, y=norm[stock_b],
-            name=stock_b.replace(".NS", ""),
-            line=dict(color="orange")
-        ))
+        fig_compare.add_trace(go.Scatter(x=norm.index, y=norm[stock_a],
+                                          name=get_ticker_label(stock_a),
+                                          line=dict(color="cyan")))
+        fig_compare.add_trace(go.Scatter(x=norm.index, y=norm[stock_b],
+                                          name=get_ticker_label(stock_b),
+                                          line=dict(color="orange")))
         fig_compare.update_layout(
-            title=f"Normalized Price Comparison — {stock_a.replace('.NS','')} vs {stock_b.replace('.NS','')} (Base = 100)",
-            xaxis_title="Date",
-            yaxis_title="Normalized Price",
-            template="plotly_dark",
-            hovermode="x unified"
-        )
+            title=f"{get_ticker_label(stock_a)} vs {get_ticker_label(stock_b)} (Base=100)",
+            xaxis_title="Date", yaxis_title="Normalized Price",
+            template="plotly_dark", hovermode="x unified")
         st.plotly_chart(fig_compare, use_container_width=True)
 
         st.subheader("Head-to-Head Metrics")
         total_returns_full = (close_df.iloc[-1] / close_df.iloc[0] - 1) * 100
         avg_vol_full = volatility_df.mean()
-
         r_a = total_returns_full.get(stock_a, None)
         r_b = total_returns_full.get(stock_b, None)
         v_a = avg_vol_full.get(stock_a, None)
         v_b = avg_vol_full.get(stock_b, None)
-
         m1, m2 = st.columns(2)
         m3, m4 = st.columns(2)
-
         if r_a is not None and r_b is not None:
-            m1.metric(f"{stock_a.replace('.NS','')} Total Return", f"{r_a:.1f}%")
-            m2.metric(f"{stock_b.replace('.NS','')} Total Return", f"{r_b:.1f}%",
-                      delta=f"{r_b - r_a:.1f}% vs {stock_a.replace('.NS','')}")
-        else:
-            m1.metric(f"{stock_a.replace('.NS','')} Total Return", "N/A")
-            m2.metric(f"{stock_b.replace('.NS','')} Total Return", "N/A")
-
+            m1.metric(f"{get_ticker_label(stock_a)} Return", f"{r_a:.1f}%")
+            m2.metric(f"{get_ticker_label(stock_b)} Return", f"{r_b:.1f}%",
+                      delta=f"{r_b - r_a:.1f}% vs A")
         if v_a is not None and v_b is not None:
-            m3.metric(f"{stock_a.replace('.NS','')} Avg Volatility", f"{v_a:.3f}")
-            m4.metric(f"{stock_b.replace('.NS','')} Avg Volatility", f"{v_b:.3f}",
-                      delta=f"{v_b - v_a:.3f} vs {stock_a.replace('.NS','')}",
-                      delta_color="inverse")
-        else:
-            m3.metric(f"{stock_a.replace('.NS','')} Avg Volatility", "N/A")
-            m4.metric(f"{stock_b.replace('.NS','')} Avg Volatility", "N/A")
-# ── Tab 7: Investment Simulator ───────────────────────────────────────────────
-with tab7:
-    st.subheader("💰 Investment Simulator")
-    st.caption("See what your investment would be worth today based on historical data.")
+            m3.metric(f"{get_ticker_label(stock_a)} Volatility", f"{v_a:.3f}")
+            m4.metric(f"{get_ticker_label(stock_b)} Volatility", f"{v_b:.3f}",
+                      delta=f"{v_b - v_a:.3f} vs A", delta_color="inverse")
 
+# ── Tab 8: Investment Simulator ───────────────────────────────────────────────
+with tab8:
+    st.subheader("💰 Investment Simulator")
     sim_col1, sim_col2, sim_col3 = st.columns(3)
-    sim_stock = sim_col1.selectbox("Pick a Stock", TICKERS,
-                                    format_func=lambda x: TICKER_LABELS[x],
-                                    key="sim_stock")
+    sim_stock = sim_col1.selectbox("Pick a Stock", selected_tickers,
+                                    format_func=lambda x: get_ticker_label(x), key="sim_stock")
     sim_amount = sim_col2.number_input("Investment Amount (₹)", min_value=1000,
                                         max_value=10000000, value=10000, step=1000)
-    sim_start = sim_col3.date_input("Investment Start Date",
-                                     value=pd.to_datetime("2020-01-01"),
-                                     min_value=pd.to_datetime("2020-01-01"),
-                                     max_value=pd.to_datetime("2024-12-31"),
+    sim_start = sim_col3.date_input("Start Date", value=pd.to_datetime("2020-01-01"),
                                      key="sim_start")
-
-    if sim_stock and sim_amount:
+    if sim_stock in close_df.columns:
         stock_series = close_df[sim_stock].dropna()
         sim_start_ts = pd.Timestamp(sim_start)
-
-        # Find nearest available trading date
         available_dates = stock_series.index[stock_series.index >= sim_start_ts]
-
         if len(available_dates) == 0:
-            st.warning("No data available from this start date. Try an earlier date.")
+            st.warning("No data from this start date.")
         else:
             actual_start = available_dates[0]
             start_price = stock_series[actual_start]
             end_price = stock_series.iloc[-1]
-
             shares = sim_amount / start_price
             final_value = shares * end_price
             profit_loss = final_value - sim_amount
             pct_return = ((final_value - sim_amount) / sim_amount) * 100
-
-            # KPI row
             k1, k2, k3, k4 = st.columns(4)
             k1.metric("Amount Invested", f"₹{sim_amount:,.0f}")
-            k2.metric("Current Value", f"₹{final_value:,.0f}",
-                      delta=f"₹{profit_loss:,.0f}")
+            k2.metric("Current Value", f"₹{final_value:,.0f}", f"₹{profit_loss:,.0f}")
             k3.metric("Total Return", f"{pct_return:.1f}%")
             k4.metric("Shares Purchased", f"{shares:.4f}")
-
-            # Growth chart
             sim_series = stock_series[stock_series.index >= actual_start]
             portfolio_value = (sim_series / start_price) * sim_amount
-
             fig_sim = go.Figure()
-            fig_sim.add_trace(go.Scatter(
-                x=portfolio_value.index,
-                y=portfolio_value.values,
-                mode="lines",
-                name="Portfolio Value",
-                line=dict(color="lime", width=2),
-                fill="tozeroy",
-                fillcolor="rgba(0,255,0,0.05)"
-            ))
-            fig_sim.add_hline(y=sim_amount, line_dash="dash",
-                              line_color="gray",
-                              annotation_text="Initial Investment",
-                              annotation_position="top left")
-            fig_sim.update_layout(
-                title=f"₹{sim_amount:,.0f} invested in {sim_stock.replace('.NS','')} from {actual_start.date()}",
-                xaxis_title="Date",
-                yaxis_title="Portfolio Value (₹)",
-                template="plotly_dark",
-                hovermode="x unified"
-            )
+            fig_sim.add_trace(go.Scatter(x=portfolio_value.index, y=portfolio_value.values,
+                                          mode="lines", name="Portfolio Value",
+                                          line=dict(color="lime", width=2),
+                                          fill="tozeroy", fillcolor="rgba(0,255,0,0.05)"))
+            fig_sim.add_hline(y=sim_amount, line_dash="dash", line_color="gray",
+                              annotation_text="Initial Investment")
+            fig_sim.update_layout(title=f"₹{sim_amount:,.0f} in {get_ticker_label(sim_stock)}",
+                                   xaxis_title="Date", yaxis_title="Portfolio Value (₹)",
+                                   template="plotly_dark", hovermode="x unified")
             st.plotly_chart(fig_sim, use_container_width=True)
 
-            # Compare all stocks with same amount
-            st.subheader("How would it compare across all stocks?")
+            st.subheader("Compare across selected stocks")
             comparison_data = []
-            for ticker in TICKERS:
+            for ticker in selected_tickers:
+                if ticker not in close_df.columns:
+                    continue
                 s = close_df[ticker].dropna()
                 avail = s.index[s.index >= sim_start_ts]
                 if len(avail) == 0:
                     continue
-                sp = s[avail[0]]
-                ep = s.iloc[-1]
-                fv = (ep / sp) * sim_amount
+                fv = (s.iloc[-1] / s[avail[0]]) * sim_amount
                 comparison_data.append({
-                    "Stock": ticker.replace(".NS", ""),
+                    "Stock": get_ticker_label(ticker),
+                    "Sector": get_sector(ticker),
                     "Final Value (₹)": round(fv, 2),
                     "Return (%)": round(((fv - sim_amount) / sim_amount) * 100, 2)
                 })
-
             comp_df = pd.DataFrame(comparison_data).sort_values("Return (%)", ascending=False)
-
-            fig_comp = px.bar(
-                comp_df,
-                x="Stock",
-                y="Final Value (₹)",
-                color="Return (%)",
-                color_continuous_scale="RdYlGn",
-                title=f"Final Value of ₹{sim_amount:,.0f} across all stocks",
-                template="plotly_dark",
-                text="Return (%)"
-            )
+            fig_comp = px.bar(comp_df, x="Stock", y="Final Value (₹)",
+                              color="Return (%)", color_continuous_scale="RdYlGn",
+                              title=f"Final Value of ₹{sim_amount:,.0f} across selected stocks",
+                              template="plotly_dark", text="Return (%)")
             fig_comp.update_traces(texttemplate="%{text:.1f}%", textposition="outside")
-            fig_comp.add_hline(y=sim_amount, line_dash="dash",
-                               line_color="gray",
-                               annotation_text="Initial Investment")
+            fig_comp.add_hline(y=sim_amount, line_dash="dash", line_color="gray")
             st.plotly_chart(fig_comp, use_container_width=True)
             st.dataframe(comp_df, use_container_width=True)
 
-# ── Tab 8: Price Race Animation ───────────────────────────────────────────────
-# ── Tab 8: Price Race Animation ───────────────────────────────────────────────
-with tab8:
+# ── Tab 9: Price Race ─────────────────────────────────────────────────────────
+with tab9:
     st.subheader("🎬 Stock Price Race")
-    st.caption("Animated bar chart race showing normalized price growth over time (Base = 100)")
-
-    # Speed control
-    speed_option = st.select_slider(
-        "Animation Speed",
-        options=["0.25x", "0.5x", "1x", "2x", "4x"],
-        value="1x"
-    )
-
-    speed_map = {
-        "0.25x": 800,
-        "0.5x": 400,
-        "1x": 200,
-        "2x": 100,
-        "4x": 50
-    }
+    speed_option = st.select_slider("Animation Speed",
+                                     options=["0.25x", "0.5x", "1x", "2x", "4x"], value="1x")
+    speed_map = {"0.25x": 800, "0.5x": 400, "1x": 200, "2x": 100, "4x": 50}
     frame_duration = speed_map[speed_option]
-
     race_df = close_df.copy().dropna()
     race_df = (race_df / race_df.iloc[0]) * 100
     race_df = race_df.reset_index()
     race_df["Date"] = pd.to_datetime(race_df["Date"]).dt.strftime("%Y-%m-%d")
-
-    # Sample every 10 days
     race_df = race_df.iloc[::10].reset_index(drop=True)
-
     race_long = race_df.melt(id_vars="Date", var_name="Stock", value_name="Value")
     race_long["Stock"] = race_long["Stock"].str.replace(".NS", "", regex=False)
     race_long["Value"] = race_long["Value"].round(2)
-
-    color_map = {
-        "TCS": "#636EFA",
-        "INFY": "#EF553B",
-        "RELIANCE": "#00CC96",
-        "HDFCBANK": "#AB63FA",
-        "WIPRO": "#FFA15A"
-    }
-
-    fig_race = px.bar(
-        race_long,
-        x="Value",
-        y="Stock",
-        animation_frame="Date",
-        orientation="h",
-        range_x=[0, race_long["Value"].max() * 1.15],
-        color="Stock",
-        color_discrete_map=color_map,
-        text="Value",
-        title="Stock Price Race — Normalized to 100 (2020–2024)",
-        template="plotly_dark"
-    )
-
+    fig_race = px.bar(race_long, x="Value", y="Stock", animation_frame="Date",
+                      orientation="h", range_x=[0, race_long["Value"].max() * 1.15],
+                      color="Stock", text="Value",
+                      title="Stock Price Race (Normalized to 100)",
+                      template="plotly_dark")
     fig_race.update_traces(texttemplate="%{text:.1f}", textposition="outside")
-    fig_race.update_layout(
-        xaxis_title="Normalized Price (Base = 100)",
-        yaxis_title="",
-        showlegend=False,
-        height=450,
-        yaxis=dict(categoryorder="total ascending")
-    )
-
+    fig_race.update_layout(xaxis_title="Normalized Price", yaxis_title="",
+                            showlegend=False, height=500,
+                            yaxis=dict(categoryorder="total ascending"))
+if fig_race.layout.updatemenus:
     fig_race.layout.updatemenus[0].buttons[0].args[1]["frame"]["duration"] = frame_duration
     fig_race.layout.updatemenus[0].buttons[0].args[1]["transition"]["duration"] = frame_duration // 2
-
+else:
+    st.info("Not enough data points to animate — try selecting a wider date range or more stocks.")
     st.plotly_chart(fig_race, use_container_width=True)
-    st.caption("Press ▶ to start. Use the speed slider above to control animation pace. 0.25x is slowest, 4x is fastest.")
+    st.caption("Press ▶ to start the race.")
 
-# ── Tab 9: MA Crossover Backtest ──────────────────────────────────────────────
-with tab9:
-    st.subheader("🧪 MA Crossover Backtest Simulator")
-    st.caption("Simulates buying and selling based on MA20 vs MA50 crossover signals. Compares strategy returns vs simply holding.")
-
-    bt_col1, bt_col2 = st.columns(2)
-    bt_stock = bt_col1.selectbox("Select Stock", TICKERS,
-                                  format_func=lambda x: TICKER_LABELS[x],
-                                  key="bt_stock")
-    bt_amount = bt_col2.number_input("Starting Capital (₹)", min_value=1000,
-                                      max_value=10000000, value=10000, step=1000,
-                                      key="bt_amount")
-
-    # Build backtest
-    prices = close_df[bt_stock].dropna()
-    bt_df = pd.DataFrame({"Price": prices})
-    bt_df["MA20"] = bt_df["Price"].rolling(20).mean()
-    bt_df["MA50"] = bt_df["Price"].rolling(50).mean()
-    bt_df.dropna(inplace=True)
-
-    # Signal: 1 = hold/buy, 0 = out of market
-    bt_df["Signal"] = 0
-    bt_df.loc[bt_df["MA20"] > bt_df["MA50"], "Signal"] = 1
-
-    # Backtest logic
-    bt_df["Daily Return"] = bt_df["Price"].pct_change(fill_method=None)
-    bt_df["Strategy Return"] = bt_df["Daily Return"] * bt_df["Signal"].shift(1)
-    bt_df.dropna(inplace=True)
-
-    # Cumulative portfolio value
-    bt_df["Hold Value"] = bt_amount * (1 + bt_df["Daily Return"]).cumprod()
-    bt_df["Strategy Value"] = bt_amount * (1 + bt_df["Strategy Return"]).cumprod()
-
-    # Final values
-    final_hold = bt_df["Hold Value"].iloc[-1]
-    final_strategy = bt_df["Strategy Value"].iloc[-1]
-    hold_return = ((final_hold - bt_amount) / bt_amount) * 100
-    strategy_return = ((final_strategy - bt_amount) / bt_amount) * 100
-
-    # Signal stats
-    trades = bt_df["Signal"].diff().fillna(0)
-    num_buys = (trades == 1).sum()
-    num_sells = (trades == -1).sum()
-    days_in_market = bt_df["Signal"].sum()
-    pct_in_market = (days_in_market / len(bt_df)) * 100
-
-    # KPI row
-    k1, k2, k3, k4 = st.columns(4)
-    k1.metric("Buy & Hold Return", f"{hold_return:.1f}%", f"₹{final_hold:,.0f}")
-    k2.metric("Strategy Return", f"{strategy_return:.1f}%", f"₹{final_strategy:,.0f}",
-              delta_color="normal")
-    k3.metric("Total Trades", f"{int(num_buys)} buys / {int(num_sells)} sells")
-    k4.metric("Days in Market", f"{pct_in_market:.1f}%")
-
-    # Winner banner
-    if strategy_return > hold_return:
-        st.success(f"✅ Strategy BEAT buy & hold by {strategy_return - hold_return:.1f}%")
-    else:
-        st.warning(f"⚠️ Buy & Hold beat the strategy by {hold_return - strategy_return:.1f}% — signals didn't help here")
-
-    # Portfolio growth chart
-    fig_bt = go.Figure()
-    fig_bt.add_trace(go.Scatter(
-        x=bt_df.index,
-        y=bt_df["Hold Value"],
-        name="Buy & Hold",
-        line=dict(color="cyan", width=2)
-    ))
-    fig_bt.add_trace(go.Scatter(
-        x=bt_df.index,
-        y=bt_df["Strategy Value"],
-        name="MA Crossover Strategy",
-        line=dict(color="lime", width=2)
-    ))
-    fig_bt.add_hline(y=bt_amount, line_dash="dash",
-                     line_color="gray",
-                     annotation_text="Starting Capital",
-                     annotation_position="top left")
-    fig_bt.update_layout(
-        title=f"Portfolio Growth — {bt_stock.replace('.NS','')} | Starting ₹{bt_amount:,.0f}",
-        xaxis_title="Date",
-        yaxis_title="Portfolio Value (₹)",
-        template="plotly_dark",
-        hovermode="x unified"
-    )
-    st.plotly_chart(fig_bt, use_container_width=True)
-
-    # Buy/sell signal markers on price
-    st.subheader("Buy & Sell Points on Price Chart")
-    signal_changes = bt_df["Signal"].diff().fillna(0)
-    buy_points = bt_df[signal_changes == 1]
-    sell_points = bt_df[signal_changes == -1]
-
-    fig_signals = go.Figure()
-    fig_signals.add_trace(go.Scatter(
-        x=bt_df.index, y=bt_df["Price"],
-        name="Price", line=dict(color="white", width=1)
-    ))
-    fig_signals.add_trace(go.Scatter(
-        x=bt_df.index, y=bt_df["MA20"],
-        name="MA20", line=dict(color="cyan", dash="dash", width=1)
-    ))
-    fig_signals.add_trace(go.Scatter(
-        x=bt_df.index, y=bt_df["MA50"],
-        name="MA50", line=dict(color="orange", dash="dash", width=1)
-    ))
-    fig_signals.add_trace(go.Scatter(
-        x=buy_points.index, y=buy_points["Price"],
-        mode="markers", name="Buy",
-        marker=dict(color="lime", size=10, symbol="triangle-up")
-    ))
-    fig_signals.add_trace(go.Scatter(
-        x=sell_points.index, y=sell_points["Price"],
-        mode="markers", name="Sell",
-        marker=dict(color="red", size=10, symbol="triangle-down")
-    ))
-    fig_signals.update_layout(
-        title=f"Trade Signals — {bt_stock.replace('.NS', '')}",
-        xaxis_title="Date",
-        yaxis_title="Price (INR)",
-        template="plotly_dark",
-        hovermode="x unified"
-    )
-    st.plotly_chart(fig_signals, use_container_width=True)
-
-    # Raw trade log
-    with st.expander("📋 View Trade Log"):
-        trade_log = bt_df[signal_changes != 0][["Price", "Signal"]].copy()
-        trade_log["Action"] = trade_log["Signal"].map({1: "BUY", 0: "SELL"})
-        trade_log = trade_log[["Price", "Action"]]
-        trade_log["Price"] = trade_log["Price"].round(2)
-        st.dataframe(trade_log, use_container_width=True)
-
-# ── Tab 10: SIP Simulator ─────────────────────────────────────────────────────
+# ── Tab 10: Backtest ──────────────────────────────────────────────────────────
 with tab10:
-    st.subheader("📅 SIP Simulator")
-    st.caption("Systematic Investment Plan — invest a fixed amount every month and see how it grows.")
-
-    sip_col1, sip_col2, sip_col3 = st.columns(3)
-    sip_stock = sip_col1.selectbox("Select Stock", TICKERS,
-                                    format_func=lambda x: TICKER_LABELS[x],
-                                    key="sip_stock")
-    sip_amount = sip_col2.number_input("Monthly SIP Amount (₹)", min_value=500,
-                                        max_value=1000000, value=5000, step=500,
-                                        key="sip_amount")
-    sip_start = sip_col3.date_input("SIP Start Date",
-                                     value=pd.to_datetime("2020-01-01"),
-                                     min_value=pd.to_datetime("2020-01-01"),
-                                     max_value=pd.to_datetime("2024-11-01"),
-                                     key="sip_start")
-
-    prices = close_df[sip_stock].dropna()
-    sip_start_ts = pd.Timestamp(sip_start)
-
-    # Get one price per month (first trading day of each month)
-    monthly_prices = prices[prices.index >= sip_start_ts].resample("MS").first().dropna()
-
-    if len(monthly_prices) == 0:
-        st.warning("No data from this start date.")
-    else:
-        total_invested = 0
-        total_units = 0
-        portfolio_history = []
-
-        for date, price in monthly_prices.items():
-            units_bought = sip_amount / price
-            total_units += units_bought
-            total_invested += sip_amount
-            current_value = total_units * prices.asof(date)
-            portfolio_history.append({
-                "Date": date,
-                "Total Invested (₹)": round(total_invested, 2),
-                "Portfolio Value (₹)": round(current_value, 2)
-            })
-
-        sip_df = pd.DataFrame(portfolio_history)
-        final_value = total_units * prices.iloc[-1]
-        total_months = len(monthly_prices)
-        profit = final_value - total_invested
-        pct_return = (profit / total_invested) * 100
-
-        # XIRR approximation (simple annualized)
-        years = total_months / 12
-        annualized = ((final_value / total_invested) ** (1 / years) - 1) * 100 if years > 0 else 0
-
+    st.subheader("🧪 MA Crossover Backtest")
+    bt_col1, bt_col2 = st.columns(2)
+    bt_stock = bt_col1.selectbox("Select Stock", selected_tickers,
+                                  format_func=lambda x: get_ticker_label(x), key="bt_stock")
+    bt_amount = bt_col2.number_input("Starting Capital (₹)", min_value=1000,
+                                      max_value=10000000, value=10000, step=1000, key="bt_amount")
+    if bt_stock in close_df.columns:
+        prices = close_df[bt_stock].dropna()
+        bt_df = pd.DataFrame({"Price": prices})
+        bt_df["MA20"] = bt_df["Price"].rolling(20).mean()
+        bt_df["MA50"] = bt_df["Price"].rolling(50).mean()
+        bt_df.dropna(inplace=True)
+        bt_df["Signal"] = 0
+        bt_df.loc[bt_df["MA20"] > bt_df["MA50"], "Signal"] = 1
+        bt_df["Daily Return"] = bt_df["Price"].pct_change(fill_method=None)
+        bt_df["Strategy Return"] = bt_df["Daily Return"] * bt_df["Signal"].shift(1)
+        bt_df.dropna(inplace=True)
+        bt_df["Hold Value"] = bt_amount * (1 + bt_df["Daily Return"]).cumprod()
+        bt_df["Strategy Value"] = bt_amount * (1 + bt_df["Strategy Return"]).cumprod()
+        final_hold = bt_df["Hold Value"].iloc[-1]
+        final_strategy = bt_df["Strategy Value"].iloc[-1]
+        hold_return = ((final_hold - bt_amount) / bt_amount) * 100
+        strategy_return = ((final_strategy - bt_amount) / bt_amount) * 100
+        trades = bt_df["Signal"].diff().fillna(0)
+        num_buys = (trades == 1).sum()
+        num_sells = (trades == -1).sum()
+        pct_in_market = (bt_df["Signal"].sum() / len(bt_df)) * 100
         k1, k2, k3, k4 = st.columns(4)
-        k1.metric("Total Invested", f"₹{total_invested:,.0f}")
-        k2.metric("Current Value", f"₹{final_value:,.0f}", f"₹{profit:,.0f}")
-        k3.metric("Total Return", f"{pct_return:.1f}%")
-        k4.metric("Annualized Return", f"{annualized:.1f}%")
-
-        fig_sip = go.Figure()
-        fig_sip.add_trace(go.Scatter(
-            x=sip_df["Date"],
-            y=sip_df["Portfolio Value (₹)"],
-            name="Portfolio Value",
-            line=dict(color="lime", width=2),
-            fill="tozeroy",
-            fillcolor="rgba(0,255,0,0.05)"
-        ))
-        fig_sip.add_trace(go.Scatter(
-            x=sip_df["Date"],
-            y=sip_df["Total Invested (₹)"],
-            name="Amount Invested",
-            line=dict(color="gray", width=2, dash="dash")
-        ))
-        fig_sip.update_layout(
-            title=f"SIP Growth — ₹{sip_amount:,.0f}/month in {sip_stock.replace('.NS', '')}",
-            xaxis_title="Date",
-            yaxis_title="Value (₹)",
-            template="plotly_dark",
-            hovermode="x unified"
-        )
-        st.plotly_chart(fig_sip, use_container_width=True)
-
-        # Compare SIP vs Lump Sum
-        st.subheader("SIP vs Lump Sum Comparison")
-        lump_start_price = prices.asof(sip_start_ts)
-        lump_value = (total_invested / lump_start_price) * prices.iloc[-1]
-        lump_return = ((lump_value - total_invested) / total_invested) * 100
-
-        c1, c2 = st.columns(2)
-        c1.metric("SIP Final Value", f"₹{final_value:,.0f}", f"{pct_return:.1f}%")
-        c2.metric("Lump Sum Final Value", f"₹{lump_value:,.0f}", f"{lump_return:.1f}%",
-                  delta_color="normal")
-
-        if final_value > lump_value:
-            st.success(f"✅ SIP outperformed Lump Sum by ₹{final_value - lump_value:,.0f}")
+        k1.metric("Buy & Hold Return", f"{hold_return:.1f}%", f"₹{final_hold:,.0f}")
+        k2.metric("Strategy Return", f"{strategy_return:.1f}%", f"₹{final_strategy:,.0f}")
+        k3.metric("Total Trades", f"{int(num_buys)} buys / {int(num_sells)} sells")
+        k4.metric("Days in Market", f"{pct_in_market:.1f}%")
+        if strategy_return > hold_return:
+            st.success(f"✅ Strategy BEAT buy & hold by {strategy_return - hold_return:.1f}%")
         else:
-            st.info(f"📊 Lump Sum outperformed SIP by ₹{lump_value - final_value:,.0f} — market trended up strongly")
+            st.warning(f"⚠️ Buy & Hold beat the strategy by {hold_return - strategy_return:.1f}%")
+        fig_bt = go.Figure()
+        fig_bt.add_trace(go.Scatter(x=bt_df.index, y=bt_df["Hold Value"],
+                                     name="Buy & Hold", line=dict(color="cyan", width=2)))
+        fig_bt.add_trace(go.Scatter(x=bt_df.index, y=bt_df["Strategy Value"],
+                                     name="MA Strategy", line=dict(color="lime", width=2)))
+        fig_bt.add_hline(y=bt_amount, line_dash="dash", line_color="gray",
+                         annotation_text="Starting Capital")
+        fig_bt.update_layout(title=f"Portfolio Growth — {get_ticker_label(bt_stock)}",
+                              xaxis_title="Date", yaxis_title="Portfolio Value (₹)",
+                              template="plotly_dark", hovermode="x unified")
+        st.plotly_chart(fig_bt, use_container_width=True)
 
-        with st.expander("📋 Monthly SIP Breakdown"):
-            st.dataframe(sip_df, use_container_width=True)
+# ── Tab 11: SIP Simulator ─────────────────────────────────────────────────────
+with tab11:
+    st.subheader("📅 SIP Simulator")
+    sip_col1, sip_col2, sip_col3 = st.columns(3)
+    sip_stock = sip_col1.selectbox("Select Stock", selected_tickers,
+                                    format_func=lambda x: get_ticker_label(x), key="sip_stock")
+    sip_amount = sip_col2.number_input("Monthly SIP (₹)", min_value=500,
+                                        max_value=1000000, value=5000, step=500, key="sip_amount")
+    sip_start = sip_col3.date_input("SIP Start Date", value=pd.to_datetime("2020-01-01"),
+                                     key="sip_start")
+    if sip_stock in close_df.columns:
+        prices = close_df[sip_stock].dropna()
+        sip_start_ts = pd.Timestamp(sip_start)
+        monthly_prices = prices[prices.index >= sip_start_ts].resample("MS").first().dropna()
+        if len(monthly_prices) == 0:
+            st.warning("No data from this start date.")
+        else:
+            total_invested = 0
+            total_units = 0
+            portfolio_history = []
+            for date, price in monthly_prices.items():
+                units_bought = sip_amount / price
+                total_units += units_bought
+                total_invested += sip_amount
+                current_value = total_units * prices.asof(date)
+                portfolio_history.append({
+                    "Date": date,
+                    "Total Invested (₹)": round(total_invested, 2),
+                    "Portfolio Value (₹)": round(current_value, 2)
+                })
+            sip_df = pd.DataFrame(portfolio_history)
+            final_value = total_units * prices.iloc[-1]
+            profit = final_value - total_invested
+            pct_return = (profit / total_invested) * 100
+            years = len(monthly_prices) / 12
+            annualized = ((final_value / total_invested) ** (1 / years) - 1) * 100 if years > 0 else 0
+            k1, k2, k3, k4 = st.columns(4)
+            k1.metric("Total Invested", f"₹{total_invested:,.0f}")
+            k2.metric("Current Value", f"₹{final_value:,.0f}", f"₹{profit:,.0f}")
+            k3.metric("Total Return", f"{pct_return:.1f}%")
+            k4.metric("Annualized Return", f"{annualized:.1f}%")
+            fig_sip = go.Figure()
+            fig_sip.add_trace(go.Scatter(x=sip_df["Date"], y=sip_df["Portfolio Value (₹)"],
+                                          name="Portfolio Value", line=dict(color="lime", width=2),
+                                          fill="tozeroy", fillcolor="rgba(0,255,0,0.05)"))
+            fig_sip.add_trace(go.Scatter(x=sip_df["Date"], y=sip_df["Total Invested (₹)"],
+                                          name="Amount Invested",
+                                          line=dict(color="gray", dash="dash")))
+            fig_sip.update_layout(
+                title=f"SIP Growth — ₹{sip_amount:,.0f}/month in {get_ticker_label(sip_stock)}",
+                xaxis_title="Date", yaxis_title="Value (₹)",
+                template="plotly_dark", hovermode="x unified")
+            st.plotly_chart(fig_sip, use_container_width=True)
+            lump_start_price = prices.asof(sip_start_ts)
+            lump_value = (total_invested / lump_start_price) * prices.iloc[-1]
+            lump_return = ((lump_value - total_invested) / total_invested) * 100
+            c1, c2 = st.columns(2)
+            c1.metric("SIP Final Value", f"₹{final_value:,.0f}", f"{pct_return:.1f}%")
+            c2.metric("Lump Sum Final Value", f"₹{lump_value:,.0f}", f"{lump_return:.1f}%")
+            if final_value > lump_value:
+                st.success(f"✅ SIP outperformed Lump Sum by ₹{final_value - lump_value:,.0f}")
+            else:
+                st.info(f"📊 Lump Sum outperformed SIP by ₹{lump_value - final_value:,.0f}")
+            with st.expander("📋 Monthly SIP Breakdown"):
+                st.dataframe(sip_df, use_container_width=True)
+
+# ── Tab 12: News Feed ─────────────────────────────────────────────────────────
+with tab12:
+    st.subheader("📰 Latest News")
+    news_stock = st.selectbox("Select Stock", selected_tickers,
+                               format_func=lambda x: get_ticker_label(x), key="news_stock")
+
+    @st.cache_data(ttl=300, show_spinner="Fetching news...")
+    def get_news(ticker):
+        return fetch_news(ticker)
+
+    news_items = get_news(news_stock)
+    if news_items:
+        for item in news_items:
+            with st.container():
+                st.markdown(f"### [{item['title']}]({item['link']})")
+                st.markdown(f"**{item['publisher']}** — {item['time']}")
+                st.markdown("---")
+    else:
+        st.info("No news available for this stock right now.")
