@@ -193,8 +193,7 @@ else:
 
 st.markdown("---")
 
-# ── Tabs ─────────────────────────────────────────────────────────────────────
-tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11, tab12 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11, tab12, tab13 = st.tabs([
     "📊 Overview",
     "🏭 Sectors",
     "📉 Returns",
@@ -206,7 +205,8 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11, tab12 = st.t
     "🎬 Price Race",
     "🧪 Backtest",
     "📅 SIP Simulator",
-    "📰 News Feed"
+    "📰 News Feed",
+    "🧺 Portfolio Builder"
 ])
 
 # ── Tab 1: Overview ───────────────────────────────────────────────────────────
@@ -660,3 +660,151 @@ with tab12:
                 st.markdown("---")
     else:
         st.info("No news available for this stock right now.")
+
+
+# ── Tab 13: Portfolio Builder ─────────────────────────────────────────────────
+with tab13:
+    st.subheader("🧺 Portfolio Builder")
+    st.caption("Build a multi-stock portfolio with custom weights and track combined performance over time.")
+
+    portfolio_stocks = st.multiselect(
+        "Pick stocks for your portfolio (2–8 recommended)",
+        options=selected_tickers,
+        default=selected_tickers[:min(3, len(selected_tickers))],
+        format_func=lambda x: get_ticker_label(x),
+        key="portfolio_stocks"
+    )
+
+    if len(portfolio_stocks) < 2:
+        st.info("Select at least 2 stocks to build a portfolio.")
+    else:
+        total_capital = st.number_input(
+            "Total Capital to Invest (₹)",
+            min_value=1000, max_value=100000000, value=100000, step=1000,
+            key="portfolio_capital"
+        )
+
+        st.markdown("#### Set Allocation Weights (%)")
+        st.caption("Weights should add up to 100%. Equal split is the default.")
+
+        equal_weight = round(100 / len(portfolio_stocks), 2)
+        weights = {}
+        weight_cols = st.columns(min(len(portfolio_stocks), 4))
+
+        for i, ticker in enumerate(portfolio_stocks):
+            col = weight_cols[i % 4]
+            weights[ticker] = col.number_input(
+                get_ticker_label(ticker).split(" (")[0],
+                min_value=0.0, max_value=100.0,
+                value=equal_weight, step=1.0,
+                key=f"weight_{ticker}"
+            )
+
+        total_weight = sum(weights.values())
+
+        if abs(total_weight - 100) > 0.5:
+            st.warning(f"⚠️ Weights sum to {total_weight:.1f}%, not 100%. Adjust before viewing results (they'll be auto-normalized below).")
+
+        # Normalize weights regardless, so it always works
+        norm_weights = {t: w / total_weight for t, w in weights.items()} if total_weight > 0 else {}
+
+        if norm_weights:
+            # Build portfolio value over time
+            portfolio_prices = close_df[portfolio_stocks].dropna()
+
+            if portfolio_prices.empty:
+                st.warning("No overlapping data available for the selected stocks in this date range.")
+            else:
+                units = {}
+                for ticker in portfolio_stocks:
+                    allocated_amount = total_capital * norm_weights[ticker]
+                    start_price = portfolio_prices[ticker].iloc[0]
+                    units[ticker] = allocated_amount / start_price
+
+                portfolio_value_series = sum(
+                    portfolio_prices[ticker] * units[ticker] for ticker in portfolio_stocks
+                )
+
+                final_value = portfolio_value_series.iloc[-1]
+                total_return_pct = ((final_value - total_capital) / total_capital) * 100
+                profit = final_value - total_capital
+
+                # Benchmark — equal weighted average of same stocks (unweighted)
+                benchmark_norm = (portfolio_prices / portfolio_prices.iloc[0]).mean(axis=1) * total_capital
+
+                k1, k2, k3, k4 = st.columns(4)
+                k1.metric("Capital Invested", f"₹{total_capital:,.0f}")
+                k2.metric("Current Value", f"₹{final_value:,.0f}", f"₹{profit:,.0f}")
+                k3.metric("Total Return", f"{total_return_pct:.1f}%")
+                k4.metric("Stocks in Portfolio", f"{len(portfolio_stocks)}")
+
+                # Growth chart — weighted portfolio vs equal-weight benchmark
+                fig_portfolio = go.Figure()
+                fig_portfolio.add_trace(go.Scatter(
+                    x=portfolio_value_series.index, y=portfolio_value_series.values,
+                    name="Your Portfolio (Weighted)",
+                    line=dict(color="lime", width=2),
+                    fill="tozeroy", fillcolor="rgba(0,255,0,0.05)"
+                ))
+                fig_portfolio.add_trace(go.Scatter(
+                    x=benchmark_norm.index, y=benchmark_norm.values,
+                    name="Equal-Weight Benchmark",
+                    line=dict(color="gray", width=2, dash="dash")
+                ))
+                fig_portfolio.add_hline(y=total_capital, line_dash="dot", line_color="white",
+                                        annotation_text="Initial Capital")
+                fig_portfolio.update_layout(
+                    title="Portfolio Growth — Weighted vs Equal-Weight Benchmark",
+                    xaxis_title="Date", yaxis_title="Portfolio Value (₹)",
+                    template="plotly_dark", hovermode="x unified"
+                )
+                st.plotly_chart(fig_portfolio, use_container_width=True)
+
+                # Allocation breakdown
+                st.markdown("#### Allocation Breakdown")
+                alloc_data = []
+                for ticker in portfolio_stocks:
+                    allocated_amt = total_capital * norm_weights[ticker]
+                    current_val = portfolio_prices[ticker].iloc[-1] * units[ticker]
+                    stock_return = ((current_val - allocated_amt) / allocated_amt) * 100
+                    alloc_data.append({
+                        "Stock": get_ticker_label(ticker),
+                        "Weight (%)": round(norm_weights[ticker] * 100, 1),
+                        "Allocated (₹)": round(allocated_amt, 2),
+                        "Current Value (₹)": round(current_val, 2),
+                        "Return (%)": round(stock_return, 2)
+                    })
+                alloc_df = pd.DataFrame(alloc_data)
+
+                col_pie, col_table = st.columns([1, 1.5])
+                with col_pie:
+                    fig_pie = px.pie(
+                        alloc_df, names="Stock", values="Allocated (₹)",
+                        title="Capital Allocation", template="plotly_dark", hole=0.4
+                    )
+                    st.plotly_chart(fig_pie, use_container_width=True)
+                with col_table:
+                    st.dataframe(
+                        alloc_df.sort_values("Return (%)", ascending=False),
+                        use_container_width=True, hide_index=True
+                    )
+
+                # Contribution to overall return
+                st.markdown("#### Which stock contributed most to your return?")
+                contribution_df = alloc_df.copy()
+                contribution_df["Contribution (₹)"] = contribution_df["Current Value (₹)"] - contribution_df["Allocated (₹)"]
+                contribution_df = contribution_df.sort_values("Contribution (₹)", ascending=False)
+                fig_contrib = px.bar(
+                    contribution_df, x="Stock", y="Contribution (₹)",
+                    color="Contribution (₹)", color_continuous_scale="RdYlGn",
+                    title="Profit/Loss Contribution by Stock",
+                    template="plotly_dark", text="Contribution (₹)"
+                )
+                fig_contrib.update_traces(texttemplate="₹%{text:,.0f}", textposition="outside")
+                fig_contrib.update_layout(showlegend=False)
+                st.plotly_chart(fig_contrib, use_container_width=True)
+
+                # CSV download
+                csv_portfolio = alloc_df.to_csv(index=False).encode("utf-8")
+                st.download_button("📥 Download Portfolio Breakdown (CSV)", csv_portfolio,
+                                    "portfolio_breakdown.csv", "text/csv")

@@ -46,11 +46,20 @@ def fetch_realtime_price(ticker: str):
 def fetch_news(ticker: str):
     try:
         stock = yf.Ticker(ticker)
-        news = stock.news[:5]
-        return [{"title": n.get("title", ""),
-                 "link": n.get("link", ""),
-                 "publisher": n.get("publisher", ""),
-                 "time": pd.to_datetime(n.get("providerPublishTime", 0), unit="s").strftime("%d %b %Y")}
-                for n in news]
-    except:
+        raw_news = stock.news[:5]
+        results = []
+        for n in raw_news:
+            content = n.get("content", n)  # newer schema nests everything under 'content'
+            title = content.get("title", "")
+            publisher = content.get("provider", {}).get("displayName", "Unknown")
+            link = content.get("clickThroughUrl", {}).get("url", content.get("canonicalUrl", {}).get("url", ""))
+            pub_date = content.get("pubDate", content.get("displayTime", ""))
+            try:
+                time_str = pd.to_datetime(pub_date).strftime("%d %b %Y")
+            except:
+                time_str = "Recent"
+            if title:
+                results.append({"title": title, "link": link, "publisher": publisher, "time": time_str})
+        return results
+    except Exception:
         return []
