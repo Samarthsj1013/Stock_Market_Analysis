@@ -130,6 +130,19 @@ daily_returns = compute_daily_returns(close_df)
 volatility_df = compute_rolling_volatility(close_df)
 cum_returns = compute_cumulative_returns(close_df)
 
+# ── Beginner Guide ────────────────────────────────────────────────────────────
+with st.expander("👋 New here? Click to see how this dashboard works", expanded=False):
+    st.markdown("""
+    **Quick guide:**
+
+    1. **Sidebar (left)** — pick which stocks you want to analyze, filter by sector, and set your date range. Everything below updates based on this.
+    2. **Start simple** — the **Overview**, **Returns**, and **Volatility** tabs are the easiest to read. Start there.
+    3. **Going deeper** — **Bollinger Bands**, **Backtest**, and **Portfolio Builder** use more advanced finance concepts. Each has a "What does this mean?" section if you're unsure.
+    4. **Just exploring?** — Try the **Investment Simulator** tab. Enter any amount and see what it would be worth today. It's the most intuitive place to start.
+
+    Nothing here is financial advice — it's historical data analysis for learning purposes.
+    """)
+
 # ── Live Prices ───────────────────────────────────────────────────────────────
 st.subheader("⚡ Live Market Prices")
 
@@ -316,6 +329,13 @@ with tab4:
         latest_vol["Stock"] = latest_vol["Stock"].str.replace(".NS", "", regex=False)
         st.dataframe(latest_vol, use_container_width=True)
 
+with st.expander("❓ What is Risk vs Return?"):
+    st.write("""
+    Each dot is one stock. **Higher on the chart** = better average return.
+    **Further right** = more volatile / riskier. The ideal stock sits high and to the left —
+    strong returns without much risk. In reality, most stocks trade off one for the other.
+    """)
+
     st.subheader("📍 Risk vs Return")
     avg_annual_return = daily_returns.mean() * 252 * 100
     avg_annual_vol = volatility_df.mean() * 100
@@ -332,6 +352,13 @@ with tab4:
                              title="Risk vs Return", template="plotly_dark")
     fig_scatter.update_traces(textposition="top center", marker=dict(size=14))
     st.plotly_chart(fig_scatter, use_container_width=True)
+
+with st.expander("❓ What is the Sharpe Ratio?"):
+    st.write("""
+    It measures **return per unit of risk** — how much reward you got for the volatility you took on.
+    A Sharpe Ratio above 1 is generally considered good, above 2 is very good.
+    Two stocks can have the same return, but the one with the higher Sharpe Ratio got there with less risk.
+    """)
 
     st.subheader("📊 Sharpe Ratio")
     risk_free_daily = 0.06 / 252
@@ -350,6 +377,7 @@ with tab4:
                          annotation_text="Good (>1)", annotation_position="top right")
     fig_sharpe.update_layout(showlegend=False)
     st.plotly_chart(fig_sharpe, use_container_width=True)
+
 
 # ── Tab 5: Bollinger Bands ────────────────────────────────────────────────────
 with tab5:
@@ -527,6 +555,7 @@ else:
 
 # ── Tab 10: Backtest ──────────────────────────────────────────────────────────
 with tab10:
+
     st.subheader("🧪 MA Crossover Backtest")
     bt_col1, bt_col2 = st.columns(2)
     bt_stock = bt_col1.selectbox("Select Stock", selected_tickers,
@@ -641,18 +670,21 @@ with tab11:
             with st.expander("📋 Monthly SIP Breakdown"):
                 st.dataframe(sip_df, use_container_width=True)
 
-# ── Tab 12: News Feed ─────────────────────────────────────────────────────────
 with tab12:
     st.subheader("📰 Latest News")
     news_stock = st.selectbox("Select Stock", selected_tickers,
                                format_func=lambda x: get_ticker_label(x), key="news_stock")
 
-    @st.cache_data(ttl=300, show_spinner="Fetching news...")
+    if st.button("🔄 Refresh News"):
+        st.cache_data.clear()
+
+    @st.cache_data(ttl=120, show_spinner="Fetching news...")   # was ttl=300
     def get_news(ticker):
         return fetch_news(ticker)
 
     news_items = get_news(news_stock)
     if news_items:
+        st.caption(f"Showing {len(news_items)} articles — refreshes every 2 minutes")
         for item in news_items:
             with st.container():
                 st.markdown(f"### [{item['title']}]({item['link']})")
@@ -664,6 +696,12 @@ with tab12:
 
 # ── Tab 13: Portfolio Builder ─────────────────────────────────────────────────
 with tab13:
+    with st.expander("❓ What is portfolio weighting?"):
+        st.write("""
+    Instead of putting all your money into one stock, you split it across several — each gets a
+    "weight" (percentage of your total capital). This is how real investors diversify. The chart
+    compares your custom-weighted mix against simply splitting money equally across the same stocks.
+    """)
     st.subheader("🧺 Portfolio Builder")
     st.caption("Build a multi-stock portfolio with custom weights and track combined performance over time.")
 

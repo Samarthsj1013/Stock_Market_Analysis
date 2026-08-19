@@ -46,7 +46,7 @@ def fetch_realtime_price(ticker: str):
 def fetch_news(ticker: str):
     try:
         stock = yf.Ticker(ticker)
-        raw_news = stock.news[:5]
+        raw_news = stock.news[:15]
         results = []
         for n in raw_news:
             content = n.get("content", n)  # newer schema nests everything under 'content'
