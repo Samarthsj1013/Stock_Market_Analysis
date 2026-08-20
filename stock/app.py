@@ -528,30 +528,36 @@ with tab9:
                                      options=["0.25x", "0.5x", "1x", "2x", "4x"], value="1x")
     speed_map = {"0.25x": 800, "0.5x": 400, "1x": 200, "2x": 100, "4x": 50}
     frame_duration = speed_map[speed_option]
+
     race_df = close_df.copy().dropna()
-    race_df = (race_df / race_df.iloc[0]) * 100
-    race_df = race_df.reset_index()
-    race_df["Date"] = pd.to_datetime(race_df["Date"]).dt.strftime("%Y-%m-%d")
-    race_df = race_df.iloc[::10].reset_index(drop=True)
-    race_long = race_df.melt(id_vars="Date", var_name="Stock", value_name="Value")
-    race_long["Stock"] = race_long["Stock"].str.replace(".NS", "", regex=False)
-    race_long["Value"] = race_long["Value"].round(2)
-    fig_race = px.bar(race_long, x="Value", y="Stock", animation_frame="Date",
-                      orientation="h", range_x=[0, race_long["Value"].max() * 1.15],
-                      color="Stock", text="Value",
-                      title="Stock Price Race (Normalized to 100)",
-                      template="plotly_dark")
-    fig_race.update_traces(texttemplate="%{text:.1f}", textposition="outside")
-    fig_race.update_layout(xaxis_title="Normalized Price", yaxis_title="",
-                            showlegend=False, height=500,
-                            yaxis=dict(categoryorder="total ascending"))
-if fig_race.layout.updatemenus:
-    fig_race.layout.updatemenus[0].buttons[0].args[1]["frame"]["duration"] = frame_duration
-    fig_race.layout.updatemenus[0].buttons[0].args[1]["transition"]["duration"] = frame_duration // 2
-else:
-    st.info("Not enough data points to animate — try selecting a wider date range or more stocks.")
-    st.plotly_chart(fig_race, use_container_width=True)
-    st.caption("Press ▶ to start the race.")
+
+    if len(race_df) < 20:
+        st.warning("Not enough overlapping data to build the price race — widen your date range or pick fewer/different stocks.")
+    else:
+        race_df = (race_df / race_df.iloc[0]) * 100
+        race_df = race_df.reset_index()
+        race_df["Date"] = pd.to_datetime(race_df["Date"]).dt.strftime("%Y-%m-%d")
+        race_df = race_df.iloc[::10].reset_index(drop=True)
+        race_long = race_df.melt(id_vars="Date", var_name="Stock", value_name="Value")
+        race_long["Stock"] = race_long["Stock"].str.replace(".NS", "", regex=False)
+        race_long["Value"] = race_long["Value"].round(2)
+
+        fig_race = px.bar(race_long, x="Value", y="Stock", animation_frame="Date",
+                          orientation="h", range_x=[0, race_long["Value"].max() * 1.15],
+                          color="Stock", text="Value",
+                          title="Stock Price Race (Normalized to 100)",
+                          template="plotly_dark")
+        fig_race.update_traces(texttemplate="%{text:.1f}", textposition="outside")
+        fig_race.update_layout(xaxis_title="Normalized Price", yaxis_title="",
+                                showlegend=False, height=500,
+                                yaxis=dict(categoryorder="total ascending"))
+
+        if fig_race.layout.updatemenus:
+            fig_race.layout.updatemenus[0].buttons[0].args[1]["frame"]["duration"] = frame_duration
+            fig_race.layout.updatemenus[0].buttons[0].args[1]["transition"]["duration"] = frame_duration // 2
+
+        st.plotly_chart(fig_race, use_container_width=True)
+        st.caption("Press ▶ to start the race.")
 
 # ── Tab 10: Backtest ──────────────────────────────────────────────────────────
 with tab10:

@@ -1,7 +1,7 @@
 import pandas as pd
 
 def compute_daily_returns(close_df: pd.DataFrame) -> pd.DataFrame:
-    return close_df.pct_change(fill_method=None).dropna()
+    return close_df.pct_change(fill_method=None).dropna(how="all")
 
 def compute_rolling_volatility(close_df: pd.DataFrame, window: int = 20) -> pd.DataFrame:
     daily_returns = compute_daily_returns(close_df)

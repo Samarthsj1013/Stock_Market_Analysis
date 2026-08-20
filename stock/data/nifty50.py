@@ -51,7 +51,7 @@ NIFTY50_STOCKS = {
     "BHARTIARTL.NS":    {"name": "Bharti Airtel",             "sector": "Telecom"},
 
     # Infrastructure & Construction
-    "LARSENTOUBRO.NS":  {"name": "Larsen & Toubro",           "sector": "Infrastructure"},
+    
     "ULTRACEMCO.NS":    {"name": "UltraTech Cement",          "sector": "Infrastructure"},
     "GRASIM.NS":        {"name": "Grasim Industries",         "sector": "Infrastructure"},
     "ADANIENT.NS":      {"name": "Adani Enterprises",         "sector": "Infrastructure"},
