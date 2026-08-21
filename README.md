@@ -1,8 +1,8 @@
-# Stock Market EDA & Volatility Tracker
+# Nifty 50 Market Intelligence Dashboard
 
-I built this to get hands-on with real financial data analysis using live NSE stock data. The goal was to go beyond just plotting price charts — I wanted something that actually simulates trading decisions, models risk, and gives usable outputs like rupee-based investment outcomes.
+Started as a 5-stock EDA project, grew into a full market analytics platform covering the Nifty 50. I built this to go beyond just plotting price charts — it now covers technical analysis, backtesting, portfolio construction, and statistical simulation, the kind of layered analysis a research desk would actually use before making a call.
 
-Tracks 5 stocks — TCS, Infosys, Reliance, HDFC Bank, and Wipro — from 2020 to 2024. That date range was intentional; the COVID crash and recovery period makes the volatility analysis genuinely interesting.
+Search any Nifty 50 stock by name or filter by sector, pick your own basket of stocks, and every tab recalculates live.
 
 🔗 **[Live Demo](#)** ← replace with your Streamlit URL
 
@@ -10,47 +10,46 @@ Tracks 5 stocks — TCS, Infosys, Reliance, HDFC Bank, and Wipro — from 2020 t
 
 ## Features
 
-**10 tabs, each doing something different:**
+**14 tabs, organized from beginner-friendly to advanced:**
 
-- **Overview** — price trends for all 5 stocks, cumulative returns, and 52-week high/low tracker
-- **Returns** — daily return distribution per stock, raw returns table, CSV download
+- **Overview** — price trends, cumulative returns, 52-week high/low tracker
+- **Sectors** — average return and risk by sector (IT, Banking, Pharma, Auto, FMCG, Energy, and more)
+- **Returns** — daily return distribution, raw returns table, CSV export
 - **Volatility** — rolling 20-day annualized volatility, Risk vs Return scatter, Sharpe Ratio comparison
-- **Bollinger Bands** — MA20 with upper/lower bands per stock for overbought/oversold analysis
-- **Signals & Correlation** — MA20 vs MA50 crossover buy/sell signals + correlation heatmap
-- **Compare Stocks** — normalized head-to-head comparison with return and volatility metrics
-- **Investment Simulator** — enter any ₹ amount and start date, see current value across all stocks
-- **Price Race** — animated bar chart race with adjustable speed (0.25x to 4x)
-- **Backtest** — MA crossover strategy vs buy-and-hold with trade log and portfolio growth chart
-- **SIP Simulator** — monthly SIP simulator with annualized return and SIP vs lump sum comparison
+- **Bollinger Bands** — overbought/oversold zones per stock
+- **Signals & Correlation** — MA20/MA50 crossover signals, correlation heatmap
+- **Compare Stocks** — normalized head-to-head comparison
+- **Investment Simulator** — enter any ₹ amount and date, see current value across all selected stocks
+- **Price Race** — animated bar chart race with adjustable speed
+- **Backtest** — MA crossover strategy vs buy-and-hold, with trade log
+- **SIP Simulator** — monthly SIP vs lump sum comparison, annualized return
+- **News Feed** — live headlines per stock
+- **Portfolio Builder** — custom-weighted multi-stock portfolio vs equal-weight benchmark, contribution breakdown
+- **Monte Carlo Simulation** — thousands of simulated future price paths using Geometric Brownian Motion, with percentile bands and outcome distribution
+
+Includes a built-in beginner's guide and plain-English explainers under every advanced metric (Sharpe Ratio, Bollinger Bands, Monte Carlo, etc.) for anyone new to financial analysis.
 
 ---
 
 ## Tech Stack
 
-| Tool | Version | Purpose |
-|------|---------|---------|
-| Python | 3.12 | Core language |
-| Streamlit | Latest | Dashboard framework and deployment |
-| yfinance | Latest | Live NSE stock data fetching |
-| Pandas | Latest | Data manipulation and analysis |
-| Plotly | Latest | Interactive charts and animations |
-| Scikit-learn | Latest | Supporting ML utilities |
+| Tool | Purpose |
+|------|---------|
+| Python | Core language |
+| Streamlit | Dashboard framework and deployment |
+| yfinance | Live NSE stock data, real-time prices, news |
+| Pandas | Data manipulation and analysis |
+| NumPy | Monte Carlo simulation (Geometric Brownian Motion) |
+| Plotly | All interactive charts, animations, and fan charts |
 
 ---
 
 ## Running Locally
 
 ```bash
-# Clone the repo
 git clone https://github.com/Samarthsj1013/Stock_Market_Analysis.git
-
-# Navigate to project folder
 cd Stock_Market_Analysis/stock
-
-# Install dependencies
 pip install -r requirements.txt
-
-# Run the app
 python -m streamlit run app.py
 ```
 
@@ -62,40 +61,36 @@ python -m streamlit run app.py
 Stock_Market_Analysis/
 ├── README.md
 └── stock/
-    ├── app.py                  # Main Streamlit dashboard (10 tabs)
-    ├── requirements.txt        # Dependencies
+    ├── app.py                  # Main dashboard (14 tabs)
+    ├── requirements.txt
     ├── data/
-    │   └── fetch_data.py       # yfinance data fetching
+    │   ├── fetch_data.py       # Price, live price, and news fetching
+    │   └── nifty50.py          # Nifty 50 stock list with sectors, search
     ├── analysis/
-    │   ├── returns.py          # Daily returns, volatility, cumulative returns
-    │   ├── bollinger.py        # Bollinger Bands calculation
-    │   └── signals.py          # MA crossover signal generation
+    │   ├── returns.py          # Returns, volatility, cumulative returns
+    │   ├── bollinger.py        # Bollinger Bands
+    │   └── signals.py          # MA crossover signals
     └── visuals/
-        ├── charts.py           # All Plotly chart functions
+        ├── charts.py           # Plotly chart functions
         └── heatmap.py          # Correlation heatmap
 ```
 
 ---
 
-## Stocks Tracked
+## Notable technical decisions
 
-| Ticker | Company |
-|--------|---------|
-| TCS.NS | Tata Consultancy Services |
-| INFY.NS | Infosys |
-| RELIANCE.NS | Reliance Industries |
-| HDFCBANK.NS | HDFC Bank |
-| WIPRO.NS | Wipro |
+- Switched from a fixed 5-stock list to the full Nifty 50 with sector tagging and name-based search
+- Guarded every `dropna()` call after finding that a single bad ticker or missing day could silently wipe out the entire dataset (`dropna(how="any")` vs `dropna(how="all")` matters a lot when working with multi-stock time series)
+- Monte Carlo simulation uses log returns and Geometric Brownian Motion — the same underlying model used in options pricing — rather than naive linear extrapolation
+- All analysis is stock-agnostic: pick any combination of Nifty 50 stocks and every tab recalculates against that selection and date range
 
 ---
 
 ## Key Insights from the Data
 
-- INFY returned ~192% over 2020–2024, the best performer by a significant margin
-- WIPRO had the highest volatility but middling returns — worst risk-adjusted performance of the five
-- TCS and INFY are highly correlated (0.71) as expected for large-cap IT peers
-- COVID period (March–July 2020) shows annualized volatility spiking above 1.0, vs the normal 0.15–0.25 range
-- Buy-and-hold beat the MA crossover strategy for most stocks — trend-following works better in strongly directional markets
+- Backtesting shows buy-and-hold beats the MA crossover strategy for most stocks over 2020–2024 — trend-following works better in strongly directional markets, and this period had a lot of sideways movement
+- IT stocks (TCS, INFY, WIPRO) are highly correlated with each other, while Banking, Pharma, and Auto sectors move more independently
+- The COVID period (March–July 2020) shows annualized volatility spiking well above the normal range across almost every stock
 
 ---
 
