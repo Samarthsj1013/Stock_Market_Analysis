@@ -4,7 +4,7 @@ Started as a 5-stock EDA project, grew into a full market analytics platform cov
 
 Search any Nifty 50 stock by name or filter by sector, pick your own basket of stocks, and every tab recalculates live.
 
-🔗 **[Live Demo](#)** ← replace with your Streamlit URL
+🔗 **[Live Demo](#)** ← https://stockmarketanalysis-13.streamlit.app/
 
 ---
 
