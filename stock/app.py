@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 from data.fetch_data import fetch_stock_data, fetch_realtime_price, fetch_news
@@ -205,23 +206,13 @@ else:
 
 st.markdown("---")
 
-# ── Tabs ─────────────────────────────────────────────────────────────────────
-tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11, tab12, tab13 = st.tabs([
-    "📊 Overview",
-    "🏭 Sectors",
-    "📉 Returns",
-    "🌊 Volatility",
-    "📐 Bollinger Bands",
-    "🔀 Signals & Correlation",
-    "⚖️ Compare Stocks",
-    "💰 Investment Simulator",
-    "🎬 Price Race",
-    "🧪 Backtest",
-    "📅 SIP Simulator",
-    "📰 News Feed",
-    "🧺 Portfolio Builder"
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11, tab12, tab13, tab14 = st.tabs([
+    "📊 Overview", "🏭 Sectors", "📉 Returns", "🌊 Volatility",
+    "📐 Bollinger Bands", "🔀 Signals & Correlation", "⚖️ Compare Stocks",
+    "💰 Investment Simulator", "🎬 Price Race", "🧪 Backtest",
+    "📅 SIP Simulator", "📰 News Feed", "🧺 Portfolio Builder",
+    "🔮 Monte Carlo"
 ])
-
 # ── Tab 1: Overview ───────────────────────────────────────────────────────────
 with tab1:
     st.subheader("Price Trends")
@@ -852,3 +843,115 @@ with tab13:
                 csv_portfolio = alloc_df.to_csv(index=False).encode("utf-8")
                 st.download_button("📥 Download Portfolio Breakdown (CSV)", csv_portfolio,
                                     "portfolio_breakdown.csv", "text/csv")
+
+# ── Tab 14: Monte Carlo Simulation ────────────────────────────────────────────
+with tab14:
+    st.subheader("🔮 Monte Carlo Price Simulation")
+    st.caption("Simulates thousands of possible future price paths based on historical volatility and drift — a technique used in real quantitative risk analysis.")
+
+    with st.expander("❓ What is Monte Carlo Simulation?"):
+        st.write("""
+        We can't predict the future, but we *can* model uncertainty. This takes the stock's historical
+        average daily return and volatility, then runs thousands of random simulated "possible futures"
+        using the same math (Geometric Brownian Motion) used in options pricing and quant risk models.
+
+        The result isn't a prediction — it's a **range of plausible outcomes**. The bands show where the
+        price is likely to land with different confidence levels (e.g. "90% of simulations landed between
+        ₹X and ₹Y after 1 year"). Wider bands = more uncertainty; narrower bands = more predictable stock.
+        """)
+
+    mc_col1, mc_col2, mc_col3 = st.columns(3)
+    mc_stock = mc_col1.selectbox("Select Stock", selected_tickers,
+                                  format_func=lambda x: get_ticker_label(x), key="mc_stock")
+    mc_days = mc_col2.selectbox("Simulate Forward", [30, 90, 180, 365],
+                                 index=3, format_func=lambda x: f"{x} days",
+                                 key="mc_days")
+    mc_sims = mc_col3.selectbox("Number of Simulations", [200, 500, 1000, 2000],
+                                 index=2, key="mc_sims")
+
+    if mc_stock in close_df.columns:
+        prices = close_df[mc_stock].dropna()
+
+        if len(prices) < 60:
+            st.warning("Not enough historical data for this stock to run a reliable simulation.")
+        else:
+            log_returns = np.log(prices / prices.shift(1)).dropna()
+            mu = log_returns.mean()
+            sigma = log_returns.std()
+            last_price = prices.iloc[-1]
+
+            np.random.seed(None)
+            simulations = np.zeros((mc_days, mc_sims))
+            simulations[0] = last_price
+
+            for t in range(1, mc_days):
+                random_shocks = np.random.normal(0, 1, mc_sims)
+                simulations[t] = simulations[t - 1] * np.exp(
+                    (mu - 0.5 * sigma ** 2) + sigma * random_shocks
+                )
+
+            final_prices = simulations[-1]
+
+            p5 = np.percentile(final_prices, 5)
+            p25 = np.percentile(final_prices, 25)
+            p50 = np.percentile(final_prices, 50)
+            p75 = np.percentile(final_prices, 75)
+            p95 = np.percentile(final_prices, 95)
+
+            k1, k2, k3, k4 = st.columns(4)
+            k1.metric("Current Price", f"₹{last_price:,.2f}")
+            k2.metric("Median Projection", f"₹{p50:,.2f}",
+                      f"{((p50 - last_price) / last_price) * 100:+.1f}%")
+            k3.metric("90% Range (Low)", f"₹{p5:,.2f}")
+            k4.metric("90% Range (High)", f"₹{p95:,.2f}")
+
+            # Build fan chart — show a sample of paths + percentile bands
+            fig_mc = go.Figure()
+
+            sample_size = min(150, mc_sims)
+            sample_idx = np.random.choice(mc_sims, sample_size, replace=False)
+            for i in sample_idx:
+                fig_mc.add_trace(go.Scatter(
+                    x=list(range(mc_days)), y=simulations[:, i],
+                    mode="lines", line=dict(color="rgba(0,255,150,0.05)", width=1),
+                    showlegend=False, hoverinfo="skip"
+                ))
+
+            percentile_bands = np.percentile(simulations, [5, 25, 50, 75, 95], axis=1)
+
+            fig_mc.add_trace(go.Scatter(x=list(range(mc_days)), y=percentile_bands[4],
+                                         name="95th Percentile", line=dict(color="red", dash="dot")))
+            fig_mc.add_trace(go.Scatter(x=list(range(mc_days)), y=percentile_bands[3],
+                                         name="75th Percentile", line=dict(color="orange", dash="dash")))
+            fig_mc.add_trace(go.Scatter(x=list(range(mc_days)), y=percentile_bands[2],
+                                         name="Median (50th)", line=dict(color="white", width=2)))
+            fig_mc.add_trace(go.Scatter(x=list(range(mc_days)), y=percentile_bands[1],
+                                         name="25th Percentile", line=dict(color="orange", dash="dash")))
+            fig_mc.add_trace(go.Scatter(x=list(range(mc_days)), y=percentile_bands[0],
+                                         name="5th Percentile", line=dict(color="red", dash="dot")))
+
+            fig_mc.update_layout(
+                title=f"Monte Carlo Simulation — {get_ticker_label(mc_stock)} ({mc_sims:,} paths, {mc_days} days)",
+                xaxis_title="Days Forward",
+                yaxis_title="Simulated Price (₹)",
+                template="plotly_dark",
+                hovermode="x unified"
+            )
+            st.plotly_chart(fig_mc, use_container_width=True)
+
+            # Distribution of final outcomes
+            st.subheader("Distribution of Simulated Outcomes")
+            fig_hist = px.histogram(
+                final_prices, nbins=60,
+                title=f"Where prices landed after {mc_days} days across {mc_sims:,} simulations",
+                template="plotly_dark",
+                labels={"value": "Simulated Final Price (₹)"}
+            )
+            fig_hist.add_vline(x=last_price, line_dash="dash", line_color="cyan",
+                               annotation_text="Current Price")
+            fig_hist.add_vline(x=p50, line_dash="solid", line_color="white",
+                               annotation_text="Median")
+            fig_hist.update_layout(showlegend=False)
+            st.plotly_chart(fig_hist, use_container_width=True)
+
+            st.caption("⚠️ This is a statistical model based on historical volatility, not a real forecast. Real markets can behave very differently from historical patterns — especially during crashes, news events, or regime shifts.")
