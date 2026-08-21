@@ -65,31 +65,26 @@ with st.sidebar:
     st.markdown("## 📈 Nifty 50 Dashboard")
     st.markdown("---")
 
-    search_query = st.text_input("🔍 Search Stock", placeholder="e.g. Infosys, TCS, Reliance")
+    st.markdown("### 🔍 Search & Select")
+    search_query = st.text_input("Search Stock", placeholder="e.g. Infosys, TCS, Reliance")
+
+    selected_sector = "All Sectors"
+
     if search_query:
-        results = search_stocks(search_query)
-        if results:
-            st.success(f"Found {len(results)} result(s)")
-            for ticker, info in results.items():
-                st.markdown(f"**{info['name']}** `{ticker}` — {info['sector']}")
-        else:
+        search_results = search_stocks(search_query)
+        stock_pool = list(search_results.keys()) if search_results else []
+        if not stock_pool:
             st.warning("No stocks found.")
-
-    st.markdown("---")
-
-    selected_sector = st.selectbox("🏭 Filter by Sector", ["All Sectors"] + SECTORS)
-
-    if selected_sector == "All Sectors":
-        filtered_tickers = ALL_TICKERS
     else:
-        filtered_tickers = get_tickers_by_sector(selected_sector)
+        st.markdown("### 🏭 Or Filter by Sector")
+        selected_sector = st.selectbox("Sector", ["All Sectors"] + SECTORS)
+        stock_pool = ALL_TICKERS if selected_sector == "All Sectors" else get_tickers_by_sector(selected_sector)
 
     selected_tickers = st.multiselect(
-        "📊 Select Stocks (max 10)",
-        options=filtered_tickers,
-        default=filtered_tickers[:5],
-        format_func=lambda x: get_ticker_label(x),
-        max_selections=10
+        "📊 Select Stocks",
+        options=stock_pool,
+        default=stock_pool[:5] if not search_query else stock_pool,
+        format_func=lambda x: get_ticker_label(x)
     )
 
     if not selected_tickers:
@@ -111,8 +106,22 @@ with st.sidebar:
 
 # ── Header ────────────────────────────────────────────────────────────────────
 st.markdown('<p class="stock-header">📈 Nifty 50 Market Intelligence Dashboard</p>', unsafe_allow_html=True)
-st.markdown(f'<p class="sub-text">Analyzing {len(selected_tickers)} stocks | {start_date} to {end_date} | Sector: {selected_sector}</p>', unsafe_allow_html=True)
+scope_label = f"Search: '{search_query}'" if search_query else f"Sector: {selected_sector}"
+st.markdown(f'<p class="sub-text">Analyzing {len(selected_tickers)} stocks | {start_date} to {end_date} | {scope_label}</p>', unsafe_allow_html=True)
 st.markdown("---")
+
+# ── Beginner Guide ────────────────────────────────────────────────────────────
+with st.expander("👋 New here? Click to see how this dashboard works", expanded=False):
+    st.markdown("""
+    **Quick guide:**
+
+    1. **Sidebar (left)** — pick which stocks you want to analyze, filter by sector or search by name, and set your date range. Everything below updates based on this.
+    2. **Start simple** — the **Overview**, **Returns**, and **Volatility** tabs are the easiest to read. Start there.
+    3. **Going deeper** — **Bollinger Bands**, **Backtest**, and **Portfolio Builder** use more advanced finance concepts. Each has a "What does this mean?" section if you're unsure.
+    4. **Just exploring?** — Try the **Investment Simulator** tab. Enter any amount and see what it would be worth today. It's the most intuitive place to start.
+
+    Nothing here is financial advice — it's historical data analysis for learning purposes.
+    """)
 
 # ── Load Data ────────────────────────────────────────────────────────────────
 @st.cache_data(show_spinner="Fetching market data...", ttl=300)
@@ -129,19 +138,6 @@ if close_df.empty:
 daily_returns = compute_daily_returns(close_df)
 volatility_df = compute_rolling_volatility(close_df)
 cum_returns = compute_cumulative_returns(close_df)
-
-# ── Beginner Guide ────────────────────────────────────────────────────────────
-with st.expander("👋 New here? Click to see how this dashboard works", expanded=False):
-    st.markdown("""
-    **Quick guide:**
-
-    1. **Sidebar (left)** — pick which stocks you want to analyze, filter by sector, and set your date range. Everything below updates based on this.
-    2. **Start simple** — the **Overview**, **Returns**, and **Volatility** tabs are the easiest to read. Start there.
-    3. **Going deeper** — **Bollinger Bands**, **Backtest**, and **Portfolio Builder** use more advanced finance concepts. Each has a "What does this mean?" section if you're unsure.
-    4. **Just exploring?** — Try the **Investment Simulator** tab. Enter any amount and see what it would be worth today. It's the most intuitive place to start.
-
-    Nothing here is financial advice — it's historical data analysis for learning purposes.
-    """)
 
 # ── Live Prices ───────────────────────────────────────────────────────────────
 st.subheader("⚡ Live Market Prices")
@@ -169,6 +165,9 @@ for i, ticker in enumerate(selected_tickers[:8]):
         )
     else:
         col.metric(label=name, value="N/A")
+
+if len(selected_tickers) > 8:
+    st.caption(f"Showing live prices for first 8 of {len(selected_tickers)} selected stocks.")
 
 st.markdown("---")
 
@@ -206,6 +205,7 @@ else:
 
 st.markdown("---")
 
+# ── Tabs ─────────────────────────────────────────────────────────────────────
 tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11, tab12, tab13 = st.tabs([
     "📊 Overview",
     "🏭 Sectors",
@@ -323,20 +323,22 @@ with tab4:
     st.plotly_chart(plot_rolling_volatility(volatility_df), use_container_width=True)
 
     st.subheader("Latest Volatility Snapshot")
-    if not volatility_df.empty and len(volatility_df) > 0:
-        latest_vol = volatility_df.dropna().iloc[-1].reset_index()
-        latest_vol.columns = ["Stock", "Volatility"]
-        latest_vol["Stock"] = latest_vol["Stock"].str.replace(".NS", "", regex=False)
-        st.dataframe(latest_vol, use_container_width=True)
-
-with st.expander("❓ What is Risk vs Return?"):
-    st.write("""
-    Each dot is one stock. **Higher on the chart** = better average return.
-    **Further right** = more volatile / riskier. The ideal stock sits high and to the left —
-    strong returns without much risk. In reality, most stocks trade off one for the other.
-    """)
+vol_clean = volatility_df.dropna(how="all")
+if not vol_clean.empty:
+    latest_vol = vol_clean.iloc[-1].dropna().reset_index()
+    latest_vol.columns = ["Stock", "Volatility"]
+    latest_vol["Stock"] = latest_vol["Stock"].str.replace(".NS", "", regex=False)
+    st.dataframe(latest_vol, use_container_width=True)
+else:
+    st.warning("Volatility data unavailable for the selected stocks/date range.")
 
     st.subheader("📍 Risk vs Return")
+    with st.expander("❓ What is Risk vs Return?"):
+        st.write("""
+        Each dot is one stock. **Higher on the chart** = better average return.
+        **Further right** = more volatile / riskier. The ideal stock sits high and to the left —
+        strong returns without much risk. In reality, most stocks trade off one for the other.
+        """)
     avg_annual_return = daily_returns.mean() * 252 * 100
     avg_annual_vol = volatility_df.mean() * 100
     valid_tickers = [t for t in selected_tickers if t in avg_annual_return.index]
@@ -353,14 +355,13 @@ with st.expander("❓ What is Risk vs Return?"):
     fig_scatter.update_traces(textposition="top center", marker=dict(size=14))
     st.plotly_chart(fig_scatter, use_container_width=True)
 
-with st.expander("❓ What is the Sharpe Ratio?"):
-    st.write("""
-    It measures **return per unit of risk** — how much reward you got for the volatility you took on.
-    A Sharpe Ratio above 1 is generally considered good, above 2 is very good.
-    Two stocks can have the same return, but the one with the higher Sharpe Ratio got there with less risk.
-    """)
-
     st.subheader("📊 Sharpe Ratio")
+    with st.expander("❓ What is the Sharpe Ratio?"):
+        st.write("""
+        It measures **return per unit of risk** — how much reward you got for the volatility you took on.
+        A Sharpe Ratio above 1 is generally considered good, above 2 is very good.
+        Two stocks can have the same return, but the one with the higher Sharpe Ratio got there with less risk.
+        """)
     risk_free_daily = 0.06 / 252
     excess_returns = daily_returns - risk_free_daily
     sharpe = (excess_returns.mean() / daily_returns.std()) * (252 ** 0.5)
@@ -377,7 +378,6 @@ with st.expander("❓ What is the Sharpe Ratio?"):
                          annotation_text="Good (>1)", annotation_position="top right")
     fig_sharpe.update_layout(showlegend=False)
     st.plotly_chart(fig_sharpe, use_container_width=True)
-
 
 # ── Tab 5: Bollinger Bands ────────────────────────────────────────────────────
 with tab5:
@@ -561,8 +561,14 @@ with tab9:
 
 # ── Tab 10: Backtest ──────────────────────────────────────────────────────────
 with tab10:
-
     st.subheader("🧪 MA Crossover Backtest")
+    with st.expander("❓ What is this Backtest doing?"):
+        st.write("""
+        It simulates two strategies with the same starting money: one where you just buy and hold forever,
+        and one where you buy when the 20-day average crosses above the 50-day average, and sell when it
+        crosses back below. This shows whether "following the signals" would have actually beaten
+        just holding the stock — often it doesn't, which is a real and useful finding.
+        """)
     bt_col1, bt_col2 = st.columns(2)
     bt_stock = bt_col1.selectbox("Select Stock", selected_tickers,
                                   format_func=lambda x: get_ticker_label(x), key="bt_stock")
@@ -676,6 +682,7 @@ with tab11:
             with st.expander("📋 Monthly SIP Breakdown"):
                 st.dataframe(sip_df, use_container_width=True)
 
+# ── Tab 12: News Feed ─────────────────────────────────────────────────────────
 with tab12:
     st.subheader("📰 Latest News")
     news_stock = st.selectbox("Select Stock", selected_tickers,
@@ -684,7 +691,7 @@ with tab12:
     if st.button("🔄 Refresh News"):
         st.cache_data.clear()
 
-    @st.cache_data(ttl=120, show_spinner="Fetching news...")   # was ttl=300
+    @st.cache_data(ttl=120, show_spinner="Fetching news...")
     def get_news(ticker):
         return fetch_news(ticker)
 
@@ -699,17 +706,17 @@ with tab12:
     else:
         st.info("No news available for this stock right now.")
 
-
 # ── Tab 13: Portfolio Builder ─────────────────────────────────────────────────
 with tab13:
-    with st.expander("❓ What is portfolio weighting?"):
-        st.write("""
-    Instead of putting all your money into one stock, you split it across several — each gets a
-    "weight" (percentage of your total capital). This is how real investors diversify. The chart
-    compares your custom-weighted mix against simply splitting money equally across the same stocks.
-    """)
     st.subheader("🧺 Portfolio Builder")
     st.caption("Build a multi-stock portfolio with custom weights and track combined performance over time.")
+
+    with st.expander("❓ What is portfolio weighting?"):
+        st.write("""
+        Instead of putting all your money into one stock, you split it across several — each gets a
+        "weight" (percentage of your total capital). This is how real investors diversify. The chart
+        compares your custom-weighted mix against simply splitting money equally across the same stocks.
+        """)
 
     portfolio_stocks = st.multiselect(
         "Pick stocks for your portfolio (2–8 recommended)",
@@ -749,11 +756,9 @@ with tab13:
         if abs(total_weight - 100) > 0.5:
             st.warning(f"⚠️ Weights sum to {total_weight:.1f}%, not 100%. Adjust before viewing results (they'll be auto-normalized below).")
 
-        # Normalize weights regardless, so it always works
         norm_weights = {t: w / total_weight for t, w in weights.items()} if total_weight > 0 else {}
 
         if norm_weights:
-            # Build portfolio value over time
             portfolio_prices = close_df[portfolio_stocks].dropna()
 
             if portfolio_prices.empty:
@@ -773,7 +778,6 @@ with tab13:
                 total_return_pct = ((final_value - total_capital) / total_capital) * 100
                 profit = final_value - total_capital
 
-                # Benchmark — equal weighted average of same stocks (unweighted)
                 benchmark_norm = (portfolio_prices / portfolio_prices.iloc[0]).mean(axis=1) * total_capital
 
                 k1, k2, k3, k4 = st.columns(4)
@@ -782,7 +786,6 @@ with tab13:
                 k3.metric("Total Return", f"{total_return_pct:.1f}%")
                 k4.metric("Stocks in Portfolio", f"{len(portfolio_stocks)}")
 
-                # Growth chart — weighted portfolio vs equal-weight benchmark
                 fig_portfolio = go.Figure()
                 fig_portfolio.add_trace(go.Scatter(
                     x=portfolio_value_series.index, y=portfolio_value_series.values,
@@ -804,7 +807,6 @@ with tab13:
                 )
                 st.plotly_chart(fig_portfolio, use_container_width=True)
 
-                # Allocation breakdown
                 st.markdown("#### Allocation Breakdown")
                 alloc_data = []
                 for ticker in portfolio_stocks:
@@ -833,7 +835,6 @@ with tab13:
                         use_container_width=True, hide_index=True
                     )
 
-                # Contribution to overall return
                 st.markdown("#### Which stock contributed most to your return?")
                 contribution_df = alloc_df.copy()
                 contribution_df["Contribution (₹)"] = contribution_df["Current Value (₹)"] - contribution_df["Allocated (₹)"]
@@ -848,7 +849,6 @@ with tab13:
                 fig_contrib.update_layout(showlegend=False)
                 st.plotly_chart(fig_contrib, use_container_width=True)
 
-                # CSV download
                 csv_portfolio = alloc_df.to_csv(index=False).encode("utf-8")
                 st.download_button("📥 Download Portfolio Breakdown (CSV)", csv_portfolio,
                                     "portfolio_breakdown.csv", "text/csv")
